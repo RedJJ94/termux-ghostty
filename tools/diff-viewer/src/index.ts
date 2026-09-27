@@ -56,6 +56,37 @@ let lastFilename: string = '';
 
 const rootElement = document.getElementById('diff-root') || document.body;
 
+/** Last background color pushed by the host app (Material surface). */
+let lastChromeBackground: string | null = null;
+
+/**
+ * Paints the page chrome (body / #diff-root empty area below the last file)
+ * with the actually-rendered code background. The code background is owned by
+ * the shiki theme inside @pierre/diffs' shadow DOM (e.g. pierre-dark's
+ * #0a0a0a) and does not necessarily equal the host Material surface (e.g.
+ * pure black), so painting the body with the surface color leaves a visible
+ * seam once the diff content ends. Falls back to the host color when no code
+ * is rendered yet (empty / message states).
+ */
+function syncPageBackground(isDark: boolean) {
+  let bg: string | null = null;
+  const container = rootElement.querySelector('diffs-container');
+  const pre = container?.shadowRoot?.querySelector('pre') ?? rootElement.querySelector('pre');
+  if (pre) {
+    try {
+      const computed = getComputedStyle(pre).backgroundColor;
+      if (computed && computed !== 'rgba(0, 0, 0, 0)') {
+        bg = computed;
+      }
+    } catch {
+      // ignore; fall through to fallback below
+    }
+  }
+  const resolved = bg ?? lastChromeBackground ?? (isDark ? '#121212' : '#ffffff');
+  document.body.style.backgroundColor = resolved;
+  rootElement.style.backgroundColor = resolved;
+}
+
 function showMessage(text: string, isError = false) {
   rootElement.innerHTML = `
     <div style="
@@ -161,26 +192,53 @@ function setFileCollapsed(item: HTMLElement, collapsed: boolean) {
   }
 }
 
-function setupCollapsible(instance: FileDiff, container: HTMLElement) {
-  const anyInst = instance as any;
-  const diffsContainer: HTMLElement | null =
-    anyInst.fileContainer || container.querySelector('diffs-container');
-  if (!diffsContainer) return;
+function setupCollapsible(_instance: FileDiff, _container: HTMLElement) {
+  // Collapse is handled by the delegated document-level click listener
+  // installed in installCollapseDelegation(). Per-header listeners are
+  // intentionally NOT used here: @pierre/diffs recreates the header DOM
+  // inside its shadow root on every rerender (theme change, word-diff
+  // toggle, shiki highlight pass), which would orphan listeners attached
+  // to the old header element and silently break tap-to-collapse.
+}
 
-  const shadowRoot = diffsContainer.shadowRoot;
-  const header: HTMLElement | null =
-    anyInst.headerElement || shadowRoot?.querySelector('[data-diffs-header]');
-  if (!header) return;
-
-  header.addEventListener('click', (e: MouseEvent) => {
+/**
+ * Single delegated tap-to-collapse handler. Survives rerenders because it
+ * lives on `document` instead of the (recreated) header elements. Clicks
+ * inside the header's shadow DOM still reach `document` because `click`
+ * is a composed event; `composedPath()` reveals the original inner target.
+ */
+function installCollapseDelegation() {
+  document.addEventListener('click', (e: MouseEvent) => {
     const target = e.target as HTMLElement | null;
-    if (target?.closest('a, button, input, select, textarea')) {
+    if (target?.closest?.('a, button, input, select, textarea')) {
       return;
     }
-    const isCurrentlyCollapsed = container.hasAttribute('data-collapsed');
-    setFileCollapsed(container, !isCurrentlyCollapsed);
+    const path: EventTarget[] =
+      typeof e.composedPath === 'function' ? e.composedPath() : [];
+    let header: HTMLElement | null = null;
+    for (const node of path) {
+      if (node instanceof HTMLElement && node.hasAttribute('data-diffs-header')) {
+        header = node;
+        break;
+      }
+    }
+    if (!header) return;
+    let item: HTMLElement | null = null;
+    for (const node of path) {
+      if (node instanceof HTMLElement && node.classList?.contains('file-diff-item')) {
+        item = node;
+        break;
+      }
+    }
+    if (!item) {
+      item = target?.closest?.('.file-diff-item') as HTMLElement | null;
+    }
+    if (!item) return;
+    setFileCollapsed(item, !item.hasAttribute('data-collapsed'));
   });
 }
+
+installCollapseDelegation();
 
 function reapplyCollapsedStates() {
   const items = rootElement.querySelectorAll<HTMLElement>('.file-diff-item');
@@ -321,6 +379,7 @@ async function renderPatch(patchString: string, optionsJson?: string) {
     }
 
     applyLineNumbersToDOM(currentOptions.showLineNumbers !== false);
+    syncPageBackground(currentOptions.isDark ?? true);
     window.AndroidDiffBridge?.onRenderComplete?.(totalFiles, totalHunks);
   } catch (err: any) {
     console.error('Failed to parse or render patch:', err);
@@ -386,6 +445,7 @@ async function renderFiles(
     setupCollapsible(instance, container);
 
     applyLineNumbersToDOM(currentOptions.showLineNumbers !== false);
+    syncPageBackground(currentOptions.isDark ?? true);
     window.AndroidDiffBridge?.onRenderComplete?.(1, fileDiff.hunks?.length || 0);
   } catch (err: any) {
     console.error('Failed to render files diff:', err);
@@ -400,10 +460,8 @@ function updateTheme(isDark: boolean, bgColor?: string, fgColor?: string) {
   document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
 
   if (bgColor) {
+    lastChromeBackground = bgColor;
     document.documentElement.style.setProperty('--diffs-bg', bgColor);
-    document.body.style.backgroundColor = bgColor;
-  } else {
-    document.body.style.backgroundColor = isDark ? '#121212' : '#ffffff';
   }
 
   if (fgColor) {
@@ -420,6 +478,8 @@ function updateTheme(isDark: boolean, bgColor?: string, fgColor?: string) {
       // ignore
     }
   }
+
+  syncPageBackground(isDark);
 }
 
 function applyLineNumbersToDOM(show: boolean) {
