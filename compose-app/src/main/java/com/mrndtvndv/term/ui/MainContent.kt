@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import com.mrndtvndv.term.CrashBreadcrumbs
 import com.mrndtvndv.term.MainViewModel
 import com.mrndtvndv.term.NativeLogcatLogger
 import com.mrndtvndv.term.ScreenState
@@ -133,6 +134,13 @@ fun MainContent(
 
     // Sync backstack with ViewModel screen state
     LaunchedEffect(uiState.screen) {
+        val screen = uiState.screen
+        CrashBreadcrumbs.setScreen(
+            when (screen) {
+                is ScreenState.ServerList -> "ServerList"
+                is ScreenState.TerminalWorkspace -> "Workspace:${screen.serverId}"
+            }
+        )
         when (uiState.screen) {
             is ScreenState.ServerList -> {
                 onCloseFile()

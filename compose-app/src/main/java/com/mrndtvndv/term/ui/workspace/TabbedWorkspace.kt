@@ -231,13 +231,9 @@ fun TabbedWorkspace(
 
     // Sync external activeTab when pager is swiped by the user.
     // Also records a breadcrumb for crash reports (see CrashBreadcrumbs).
-    // NOTE: keyed on settledPage, not currentPage. currentPage flips mid-swipe while
-    // the pager is still placing pages; restarting this effect (and its
-    // onTabSelected/onRefreshWorkspace side effects) then mutates composition state
-    // mid-placement ("LayoutNode should be attached to an owner" during
-    // dispatchDraw). settledPage only flips after the scroll settles, when the
-    // pager is idle. currentPage is still read for the breadcrumb, but a body read
-    // does not restart the effect.
+    // Keyed on settledPage (the idle page) rather than currentPage: side effects
+    // belong to settled state per PagerState semantics. currentPage is still read
+    // for the breadcrumb, but a body read does not restart the effect.
     LaunchedEffect(pagerState.settledPage, activeTabs) {
         CrashBreadcrumbs.setWorkspace(
             tab = activeTab.title,
@@ -261,23 +257,14 @@ fun TabbedWorkspace(
             if (activeTabs.size > 1 && !hideTabs) {
                 SecondaryTabRow(
                     modifier = Modifier.statusBarsPadding(),
-                    // NOTE: driven by settledPage, not currentPage. currentPage flips
-                    // mid-swipe while the pager is still placing pages; feeding it into
-                    // SecondaryTabRow (a SubcomposeLayout) recomposes the tab labels —
-                    // whose text is laid out through M3's internal Badge bounds — and
-                    // replaces their LayoutNodes mid-placement ("LayoutNode should be
-                    // attached to an owner" during dispatchDraw). settledPage only
-                    // flips after the scroll settles, when the pager is idle, so the
-                    // tab highlight updates one frame later instead of crashing.
-                    selectedTabIndex = pagerState.settledPage.coerceIn(activeTabs.indices),
+                    // Live indicator driven by currentPage (the documented pattern);
+                    // side effects stay gated on settledPage in the effect above.
+                    selectedTabIndex = pagerState.currentPage.coerceIn(activeTabs.indices),
                     containerColor = MaterialTheme.colorScheme.surface,
                     contentColor = MaterialTheme.colorScheme.onSurface,
                 ) {
                     activeTabs.forEachIndexed { index, tab ->
-                        // Same settledPage rationale as selectedTabIndex above: reading
-                        // currentPage here restyles tab labels mid-swipe, replacing
-                        // their nodes while the pager places pages.
-                        val isSelected = pagerState.settledPage == index
+                        val isSelected = pagerState.currentPage == index
                         Tab(
                             selected = isSelected,
                             onClick = {

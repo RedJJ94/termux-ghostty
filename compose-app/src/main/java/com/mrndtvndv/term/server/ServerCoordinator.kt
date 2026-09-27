@@ -1,6 +1,7 @@
 package com.mrndtvndv.term.server
 
 import androidx.lifecycle.SavedStateHandle
+import com.mrndtvndv.term.CrashBreadcrumbs
 import com.mrndtvndv.term.ui.review.ReviewViewModel
 import com.mrndtvndv.term.ui.sftp.SftpViewModel
 import com.mrndtvndv.term.ui.sftp.transfer.SftpTransferManager
@@ -80,7 +81,11 @@ class ServerCoordinator(
     override suspend fun refreshWorkspace(serverId: String): WorkspaceChange? {
         val tracker = workspaceTracker(serverId) ?: return null
         val result = tracker.sync()
-        if (result !is WorkspaceTracker.SyncResult.WorkspaceChanged) return null
+        if (result !is WorkspaceTracker.SyncResult.WorkspaceChanged) {
+            CrashBreadcrumbs.setWorkEvent("ws-unchanged:$serverId")
+            return null
+        }
+        CrashBreadcrumbs.setWorkEvent("ws-changed:$serverId:${result.workspaceDir}")
         sftpViewModels[serverId]?.navigateTo(result.workspaceDir)
         return WorkspaceChange(
             workspaceDir = result.workspaceDir,
