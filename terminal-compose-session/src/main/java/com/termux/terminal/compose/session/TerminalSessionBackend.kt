@@ -2,6 +2,7 @@ package com.termux.terminal.compose.session
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import com.termux.terminal.FrameDelta
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.compose.TerminalBackend
@@ -14,8 +15,15 @@ import com.termux.terminal.compose.TerminalSelection
 import com.termux.terminal.compose.TerminalSize
 import java.util.concurrent.CompletableFuture
 
-/** Default IME resize debounce in milliseconds (0 = resize immediately). */
-private const val DefaultResizeDebounceMillis = 0L
+/**
+ * Default resize coalescing window in milliseconds.
+ *
+ * Soft-keyboard animations deliver dozens of viewport sizes per second; reflowing the
+ * backend for every frame stalls composition while the pager and insets are placing.
+ * Idle resizes (attach, rotation) still apply immediately via leading edge, so only
+ * bursts coalesce. Zero disables coalescing.
+ */
+private const val DefaultResizeDebounceMillis = 50L
 
 /**
  * Session-native adapter for the backend-neutral compose terminal API.
@@ -37,7 +45,8 @@ class TerminalSessionBackend @JvmOverloads constructor(
     private val resizeHandler = Handler(Looper.getMainLooper())
     private val resizeRunnable = Runnable { applyPendingResize() }
     private var pendingResize: TerminalSize? = null
-    private var resizeDebounceMillis = resizeDebounceMillis.coerceAtLeast(0L)
+    private val resizeCoalescer =
+        ResizeCoalescer(resizeDebounceMillis) { SystemClock.uptimeMillis() }
     private var listener: TerminalBackendListener? = null
     private var topRow = 0
     private var fullRefreshRequestedForSequence = -1L
@@ -46,7 +55,7 @@ class TerminalSessionBackend @JvmOverloads constructor(
 
     fun setResizeDebounceMillis(millis: Long) {
         if (released) return
-        resizeDebounceMillis = millis.coerceAtLeast(0L)
+        resizeCoalescer.setDebounceMillis(millis)
     }
 
     fun captureStateSnapshot(): CompletableFuture<ByteArray> {
@@ -109,10 +118,10 @@ class TerminalSessionBackend @JvmOverloads constructor(
         if (released) return
         pendingResize = size
         resizeHandler.removeCallbacks(resizeRunnable)
-        if (resizeDebounceMillis == 0L) {
+        if (resizeCoalescer.shouldApplyNow()) {
             applyPendingResize()
         } else {
-            resizeHandler.postDelayed(resizeRunnable, resizeDebounceMillis)
+            resizeHandler.postDelayed(resizeRunnable, resizeCoalescer.debounceMillis)
         }
     }
 
@@ -161,6 +170,7 @@ class TerminalSessionBackend @JvmOverloads constructor(
         pendingResize = null
         if (released) return
         session.updateSize(size.columns, size.rows, size.cellWidthPx, size.cellHeightPx)
+        resizeCoalescer.onApplied()
         topRow = 0
     }
 

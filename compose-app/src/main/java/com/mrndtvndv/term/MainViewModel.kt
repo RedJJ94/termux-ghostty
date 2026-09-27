@@ -360,7 +360,6 @@ class MainViewModel(
     // ── Workspace tracking ────────────────────────────────────────────
 
     fun refreshWorkspace(serverId: String) {
-        CrashBreadcrumbs.setWorkEvent("refresh:$serverId")
         viewModelScope.launch {
             coordinator.refreshWorkspace(serverId)
         }

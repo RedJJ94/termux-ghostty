@@ -28,8 +28,14 @@ import com.termux.terminal.compose.TerminalImeController
 import com.termux.terminal.compose.TerminalWallpaperConfig
 import com.termux.terminal.compose.session.TerminalSessionBackend
 
-/** Default soft-keyboard resize debounce in milliseconds (0 = immediate). */
-const val DefaultKeyboardResizeDebounceMillis = 0
+/**
+ * Default soft-keyboard resize debounce in milliseconds.
+ *
+ * Matches the session backend default: keyboard animations deliver dozens of viewport
+ * sizes per second, and reflowing for every frame stalls composition. Bursts coalesce
+ * to a trailing apply; idle resizes stay immediate. Zero restores immediate resize.
+ */
+const val DefaultKeyboardResizeDebounceMillis = 50
 
 /** Upper bound for the soft-keyboard resize debounce in milliseconds. */
 const val MaxKeyboardResizeDebounceMillis = 100

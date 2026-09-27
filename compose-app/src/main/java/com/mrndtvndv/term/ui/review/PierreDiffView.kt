@@ -237,6 +237,12 @@ private fun ManageWebViewLifecycle(webViewRef: WebView?) {
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
             webViewRef?.let { wv ->
+                // Detach before destroy: WebView.destroy() requires removal from the
+                // view system first. Destroying while attached lets the framework
+                // detach the view outside Compose scheduling, racing the pager's
+                // placement pass ("LayoutNode should be attached to an owner").
+                // The later AndroidView unmount re-removes (no-op) safely.
+                (wv.parent as? ViewGroup)?.removeView(wv)
                 wv.stopLoading()
                 wv.clearMatches()
                 wv.destroy()

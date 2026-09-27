@@ -19,7 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import com.mrndtvndv.term.CrashBreadcrumbs
+import androidx.compose.ui.platform.LocalFocusManager
 import com.mrndtvndv.term.MainViewModel
 import com.mrndtvndv.term.NativeLogcatLogger
 import com.mrndtvndv.term.ScreenState
@@ -104,6 +104,7 @@ fun MainContent(
     val wallpaperScalingKey by viewModel.userPrefs.wallpaperScaling.collectAsState()
     val wallpaperId by viewModel.userPrefs.wallpaperId.collectAsState()
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val notification by viewModel.notificationState.notification.collectAsState()
     val navigator = rememberAppNavigator(
         activeTab = { uiState.activeTab },
@@ -134,13 +135,6 @@ fun MainContent(
 
     // Sync backstack with ViewModel screen state
     LaunchedEffect(uiState.screen) {
-        val screen = uiState.screen
-        CrashBreadcrumbs.setScreen(
-            when (screen) {
-                is ScreenState.ServerList -> "ServerList"
-                is ScreenState.TerminalWorkspace -> "Workspace:${screen.serverId}"
-            }
-        )
         when (uiState.screen) {
             is ScreenState.ServerList -> {
                 onCloseFile()
@@ -278,7 +272,10 @@ fun MainContent(
                 // Navigation host
                 androidx.navigation3.ui.NavDisplay(
                     backStack = navigator.backStack,
-                    onBack = { navigator.goBack() },
+                    onBack = {
+                        focusManager.clearFocus()
+                        navigator.goBack()
+                    },
                     entryProvider = androidx.navigation3.runtime.entryProvider {
                         entry<AppNavKey.ServerList> {
                             ServerListScreen(
@@ -598,6 +595,7 @@ private fun BackPressInterceptor(onBack: () -> Unit) {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
 
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val activity = context as? ComponentActivity ?: return
 
     DisposableEffect(activity) {
@@ -610,6 +608,7 @@ private fun BackPressInterceptor(onBack: () -> Unit) {
                     imm.hideSoftInputFromWindow(token, 0)
                 }
             }
+            focusManager.clearFocus()
             onBack()
         }
 

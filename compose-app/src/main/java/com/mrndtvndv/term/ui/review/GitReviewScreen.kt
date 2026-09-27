@@ -17,6 +17,7 @@ import com.mrndtvndv.term.ui.theme.LocalCustomFontFamily
 import com.mrndtvndv.term.ui.theme.codeFontFamily
 import java.io.File
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -98,6 +99,7 @@ fun GitReviewScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
 
     val reviewBackStack: NavBackStack<NavKey> = rememberNavBackStack(ReviewNavKey.ChangesList)
+    val focusManager = LocalFocusManager.current
 
     var discardConfirmFile by remember { mutableStateOf<GitFileStatus?>(null) }
     var showCommitDialog by remember { mutableStateOf(false) }
@@ -419,6 +421,9 @@ fun GitReviewScreen(
             backStack = reviewBackStack,
             onBack = {
                 if (isTabActive && reviewBackStack.size > 1) {
+                    // Clear focus first: popping removes the diff branch, and rescuing
+                    // focus from inside a disposed AndroidView races placement.
+                    focusManager.clearFocus()
                     closeDiffSearch()
                     viewModel.deselectFile()
                     reviewBackStack.removeLastOrNull()
@@ -514,6 +519,8 @@ fun GitReviewScreen(
                                 },
                                 navigationIcon = {
                                     IconButton(onClick = {
+                                        // See onBack above: never pop with focus inside the diff.
+                                        focusManager.clearFocus()
                                         closeDiffSearch()
                                         viewModel.deselectFile()
                                         reviewBackStack.removeLastOrNull()
@@ -670,6 +677,8 @@ fun GitReviewScreen(
                                 },
                                 navigationIcon = {
                                     IconButton(onClick = {
+                                        // See onBack above: never pop with focus inside the diff.
+                                        focusManager.clearFocus()
                                         closeDiffSearch()
                                         viewModel.deselectFile()
                                         reviewBackStack.removeLastOrNull()
