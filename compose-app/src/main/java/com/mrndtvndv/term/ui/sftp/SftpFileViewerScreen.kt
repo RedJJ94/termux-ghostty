@@ -42,6 +42,7 @@ fun SftpFileViewerScreen(file: File, onClose: () -> Unit) {
     }
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { Text(file.name) },
@@ -56,7 +57,7 @@ fun SftpFileViewerScreen(file: File, onClose: () -> Unit) {
         Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(top = padding.calculateTopPadding())
         ) {
             when {
                 error != null -> {
@@ -107,6 +108,7 @@ private fun CodeViewer(code: String) {
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
+                .navigationBarsPadding()
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f))
         ) {
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -174,6 +176,7 @@ private fun CodeViewer(code: String) {
                 shadowElevation = 4.dp,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
                     .padding(16.dp)
                     .clickable { fontScale = 1f }
             ) {

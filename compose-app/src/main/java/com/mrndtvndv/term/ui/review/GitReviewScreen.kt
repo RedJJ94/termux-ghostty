@@ -897,6 +897,7 @@ fun FileChangesList(
             ) {
                 FloatingActionButton(
                     onClick = { if (!isCommitInProgress) onCommit() },
+                    modifier = Modifier.navigationBarsPadding(),
                 ) {
                     if (isCommitInProgress) {
                         CircularProgressIndicator(
@@ -936,7 +937,12 @@ fun FileChangesList(
                     is ReviewUiState.Success -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(top = 8.dp, bottom = 88.dp)
+                            contentPadding = PaddingValues(
+                                top = 8.dp,
+                                bottom = 88.dp + WindowInsets.navigationBars
+                                    .asPaddingValues()
+                                    .calculateBottomPadding()
+                            )
                         ) {
                             item {
                                 BranchHeader(
@@ -1123,6 +1129,7 @@ fun FileChangesList(
                 exit = slideOutVertically { it } + fadeOut(),
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
                     .padding(bottom = 16.dp)
             ) {
                 val selectedList = checkedFiles.toList()

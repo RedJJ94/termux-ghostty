@@ -308,7 +308,6 @@ fun TabbedWorkspace(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .then(if (activeTabs.size <= 1 || hideTabs) Modifier.statusBarsPadding() else Modifier)
-                .navigationBarsPadding()
                 .imePadding()
                 .clipToBounds()
                 .then(if (excludeFromSystemGesture) Modifier.systemGestureExclusion() else Modifier)
@@ -336,6 +335,7 @@ fun TabbedWorkspace(
                                     Column(
                                         modifier = Modifier
                                             .align(Alignment.BottomEnd)
+                                            .then(if (!extraKeysEnabled) Modifier.navigationBarsPadding() else Modifier)
                                             .padding(end = 12.dp, bottom = 8.dp),
                                         verticalArrangement = Arrangement.spacedBy(8.dp),
                                         horizontalAlignment = Alignment.End

@@ -76,6 +76,7 @@ fun ExtraKeysToolbar(
         modifier = modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
+            .navigationBarsPadding()
             .padding(vertical = 4.dp, horizontal = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {

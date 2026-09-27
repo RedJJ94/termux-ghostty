@@ -349,7 +349,10 @@ fun SftpFileBrowser(
                     contentWindowInsets = WindowInsets(0.dp),
                     snackbarHost = { SnackbarHost(snackbarHostState) },
                     floatingActionButton = {
-                        FloatingActionButton(onClick = { uploadPicker.launch("*/*") }) {
+                        FloatingActionButton(
+                            onClick = { uploadPicker.launch("*/*") },
+                            modifier = Modifier.navigationBarsPadding(),
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.FileUpload,
                                 contentDescription = "Upload file"
@@ -416,7 +419,12 @@ fun SftpFileBrowser(
                             is SftpUiState.Success -> {
                                 LazyColumn(
                                     modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(vertical = 8.dp)
+                                    contentPadding = PaddingValues(
+                                        top = 8.dp,
+                                        bottom = 88.dp + WindowInsets.navigationBars
+                                            .asPaddingValues()
+                                            .calculateBottomPadding()
+                                    )
                                 ) {
                                     items(state.files) { file ->
                                         ListItem(
@@ -651,6 +659,7 @@ private fun SftpMinimizedTransferBanner(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
