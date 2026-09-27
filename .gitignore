@@ -20,6 +20,9 @@ local.properties
 # Gradle generated files
 .gradle/
 
+# Diff viewer generated web assets
+compose-app/src/main/assets/diff-viewer/
+
 # Signing files
 .signing/
 

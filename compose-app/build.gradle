@@ -177,3 +177,90 @@ dependencies {
     testImplementation "junit:junit:4.13.2"
     testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0"
 }
+
+def findBunExecutable() {
+    def candidates = [
+        "bun",
+        "${System.getProperty('user.home')}/.bun/bin/bun",
+        "${System.getProperty('user.home')}/.nix-profile/bin/bun",
+        "/opt/homebrew/bin/bun",
+        "/usr/local/bin/bun",
+        "/usr/bin/bun"
+    ]
+    for (String candidate : candidates) {
+        if (candidate == "bun") {
+            try {
+                def proc = ["which", "bun"].execute()
+                if (proc.waitFor() == 0) {
+                    def resolved = proc.text.trim()
+                    if (resolved && new File(resolved).canExecute()) return resolved
+                }
+            } catch (Exception ignored) {}
+        } else {
+            def f = new File(candidate)
+            if (f.exists() && f.canExecute()) return f.absolutePath
+        }
+    }
+    return "bun"
+}
+
+def diffViewerDir = file("${rootDir}/tools/diff-viewer")
+def diffViewerOutputDir = file("${projectDir}/src/main/assets/diff-viewer")
+
+def buildDiffViewer = tasks.register('buildDiffViewer', Exec) {
+    description = 'Compiles the diff-viewer web bundle into assets using Bun'
+    group = 'build'
+
+    workingDir diffViewerDir
+
+    inputs.dir("${diffViewerDir}/src")
+    inputs.file("${diffViewerDir}/index.html")
+    inputs.file("${diffViewerDir}/package.json")
+    inputs.file("${diffViewerDir}/vite.config.ts")
+    if (file("${diffViewerDir}/bun.lock").exists()) {
+        inputs.file("${diffViewerDir}/bun.lock")
+    }
+
+    outputs.dir(diffViewerOutputDir)
+
+    def bunPath = findBunExecutable()
+    executable bunPath
+    args 'run', 'build'
+
+    doFirst {
+        def bunFile = new File(bunPath)
+        if (!bunFile.exists() && bunPath == "bun") {
+            try {
+                def check = ["which", "bun"].execute()
+                if (check.waitFor() != 0) {
+                    throw new GradleException(
+                        "Bun is required to build diff-viewer assets, but 'bun' was not found.\n" +
+                        "Please install Bun (https://bun.sh) or add it to PATH."
+                    )
+                }
+            } catch (Exception e) {
+                if (e instanceof GradleException) throw e
+                throw new GradleException("Bun is required to build diff-viewer assets: " + e.message, e)
+            }
+        }
+        def nodeModules = file("${diffViewerDir}/node_modules")
+        if (!nodeModules.exists()) {
+            project.exec {
+                workingDir diffViewerDir
+                commandLine bunPath, 'install', '--frozen-lockfile'
+            }
+        }
+    }
+}
+
+tasks.named('preBuild').configure {
+    dependsOn buildDiffViewer
+}
+
+tasks.register('cleanDiffViewer', Delete) {
+    delete diffViewerOutputDir
+}
+tasks.named('clean').configure {
+    dependsOn 'cleanDiffViewer'
+}
+

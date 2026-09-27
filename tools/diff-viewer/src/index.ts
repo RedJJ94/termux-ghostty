@@ -127,16 +127,14 @@ async function renderPatch(patchString: string, optionsJson?: string) {
     return;
   }
 
-  // Check for binary diff
-  if (patchString.includes('Binary files ') && patchString.includes(' differ')) {
-    showMessage('Binary file changed (diff not available).');
-    window.AndroidDiffBridge?.onRenderComplete?.(1, 0);
-    return;
-  }
-
   try {
     const patches = parsePatchFiles(patchString, undefined, false);
     if (!patches || patches.length === 0) {
+      if (/^Binary files .+ differ\s*$/m.test(patchString) || /^GIT binary patch/m.test(patchString)) {
+        showMessage('Binary file changed (diff not available).');
+        window.AndroidDiffBridge?.onRenderComplete?.(1, 0);
+        return;
+      }
       showMessage('No patch hunks found.');
       window.AndroidDiffBridge?.onRenderComplete?.(0, 0);
       return;
@@ -148,7 +146,8 @@ async function renderPatch(patchString: string, optionsJson?: string) {
     for (const patch of patches) {
       for (const fileDiff of patch.files) {
         totalFiles++;
-        totalHunks += fileDiff.hunks?.length || 0;
+        const hunkCount = fileDiff.hunks?.length || 0;
+        totalHunks += hunkCount;
 
         const instance = createDiffInstance(currentOptions);
         activeFileDiffInstances.push(instance);
@@ -162,6 +161,19 @@ async function renderPatch(patchString: string, optionsJson?: string) {
           fileDiff,
           containerWrapper: container,
         });
+
+        if (hunkCount === 0) {
+          const isBinary = /^Binary files .+ differ\s*$/m.test(patchString) || /^GIT binary patch/m.test(patchString);
+          const notice = document.createElement('div');
+          notice.style.padding = '16px';
+          notice.style.color = 'var(--diffs-fg-number, #888)';
+          notice.style.fontFamily = 'var(--diffs-font-family, monospace)';
+          notice.style.fontSize = '12px';
+          notice.textContent = isBinary
+            ? 'Binary file changed (diff not available).'
+            : 'No content changes (mode change or empty file).';
+          container.appendChild(notice);
+        }
       }
     }
 

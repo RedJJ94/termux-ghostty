@@ -68,6 +68,7 @@
             jdk17
             androidSdk
             zigpkgs."0.16.0"
+            bun
           ]);
 
           JAVA_HOME = if useLocalAndroidSdk then "" else pkgs.jdk17.home;
