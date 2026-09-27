@@ -165,6 +165,7 @@ async function renderPatch(patchString: string, optionsJson?: string) {
       }
     }
 
+    applyLineNumbersToDOM(currentOptions.showLineNumbers !== false);
     window.AndroidDiffBridge?.onRenderComplete?.(totalFiles, totalHunks);
   } catch (err: any) {
     console.error('Failed to parse or render patch:', err);
@@ -227,6 +228,7 @@ async function renderFiles(
       containerWrapper: container,
     });
 
+    applyLineNumbersToDOM(currentOptions.showLineNumbers !== false);
     window.AndroidDiffBridge?.onRenderComplete?.(1, fileDiff.hunks?.length || 0);
   } catch (err: any) {
     console.error('Failed to render files diff:', err);
@@ -263,40 +265,124 @@ function updateTheme(isDark: boolean, bgColor?: string, fgColor?: string) {
   }
 }
 
-function setDiffStyle(style: 'split' | 'unified') {
-  if (currentOptions.diffStyle === style) return;
-  currentOptions.diffStyle = style;
+function applyLineNumbersToDOM(show: boolean) {
+  // 1. Update options and pre attributes on active FileDiff instances
   for (const instance of activeFileDiffInstances) {
     try {
-      instance.setOptions?.({ diffStyle: style });
-    } catch {
-      // ignore
+      const anyInst = instance as any;
+      if (anyInst.options) {
+        anyInst.options.disableLineNumbers = !show;
+      }
+      if (anyInst.appliedPreAttributes) {
+        anyInst.appliedPreAttributes.disableLineNumbers = !show;
+      }
+      if (typeof anyInst.mergeOptions === 'function') {
+        anyInst.mergeOptions({ disableLineNumbers: !show });
+      }
+      const pre = anyInst.pre || anyInst.fileContainer?.shadowRoot?.querySelector('pre');
+      if (pre) {
+        if (!show) {
+          pre.setAttribute('data-disable-line-numbers', '');
+        } else {
+          pre.removeAttribute('data-disable-line-numbers');
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to update line numbers on FileDiff instance:', e);
+    }
+  }
+
+  // 2. Direct DOM update on all diffs-containers in rootElement
+  const containers = rootElement.querySelectorAll('diffs-container');
+  for (const container of containers) {
+    const pre = container.shadowRoot?.querySelector('pre');
+    if (pre) {
+      if (!show) {
+        pre.setAttribute('data-disable-line-numbers', '');
+      } else {
+        pre.removeAttribute('data-disable-line-numbers');
+      }
+    }
+  }
+
+  // 3. Direct DOM update on any .file-diff-item shadow hosts
+  const items = rootElement.querySelectorAll('.file-diff-item');
+  for (const item of items) {
+    for (const child of item.children) {
+      const pre = child.shadowRoot?.querySelector('pre');
+      if (pre) {
+        if (!show) {
+          pre.setAttribute('data-disable-line-numbers', '');
+        } else {
+          pre.removeAttribute('data-disable-line-numbers');
+        }
+      }
+    }
+  }
+
+  // 4. Fallback for any pre tags directly in rootElement
+  const pres = rootElement.querySelectorAll('pre');
+  for (const pre of pres) {
+    if (!show) {
+      pre.setAttribute('data-disable-line-numbers', '');
+    } else {
+      pre.removeAttribute('data-disable-line-numbers');
     }
   }
 }
 
-function setLineNumbers(show: boolean) {
-  if (currentOptions.showLineNumbers === show) return;
-  currentOptions.showLineNumbers = show;
+function setDiffStyle(style: 'split' | 'unified') {
+  if (currentOptions.diffStyle === style) return;
+  currentOptions.diffStyle = style;
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
   for (const instance of activeFileDiffInstances) {
     try {
-      instance.setOptions?.({ disableLineNumbers: !show });
+      const anyInst = instance as any;
+      if (anyInst.options) {
+        anyInst.options.diffStyle = style;
+      }
+      if (typeof anyInst.mergeOptions === 'function') {
+        anyInst.mergeOptions({ diffStyle: style });
+      }
+      anyInst.rerender?.();
     } catch {
       // ignore
     }
   }
+  requestAnimationFrame(() => {
+    window.scrollTo(scrollX, scrollY);
+  });
+}
+
+function setLineNumbers(show: boolean) {
+  currentOptions.showLineNumbers = show;
+  applyLineNumbersToDOM(show);
 }
 
 function setWordDiff(enabled: boolean) {
   if (currentOptions.isWordDiffEnabled === enabled) return;
   currentOptions.isWordDiffEnabled = enabled;
+  const lineDiffType = enabled ? 'word' : 'none';
+  const scrollX = window.scrollX;
+  const scrollY = window.scrollY;
   for (const instance of activeFileDiffInstances) {
     try {
-      instance.setOptions?.({ lineDiffType: enabled ? 'word' : 'none' });
+      const anyInst = instance as any;
+      if (anyInst.options) {
+        anyInst.options.lineDiffType = lineDiffType;
+      }
+      if (typeof anyInst.mergeOptions === 'function') {
+        anyInst.mergeOptions({ lineDiffType });
+      }
+      anyInst.rerender?.();
     } catch {
       // ignore
     }
   }
+  requestAnimationFrame(() => {
+    window.scrollTo(scrollX, scrollY);
+  });
 }
 
 function clear() {
