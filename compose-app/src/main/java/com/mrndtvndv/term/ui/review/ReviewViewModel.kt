@@ -52,7 +52,10 @@ data class GitCommit(
  */
 internal sealed interface DiffContentState {
     object Loading : DiffContentState
-    data class Ready(val sections: List<DiffSectionView>) : DiffContentState
+    data class Ready(
+        val sections: List<DiffSectionView>,
+        val rawDiff: String = ""
+    ) : DiffContentState
     data class Error(val message: String) : DiffContentState
 }
 
@@ -447,13 +450,14 @@ class ReviewViewModel(
     private suspend fun buildDiffContent(diffOutput: String): DiffContentState.Ready =
         withContext(Dispatchers.Default) {
             DiffContentState.Ready(
-                parseFileDiffSections(diffOutput).map { section ->
+                sections = parseFileDiffSections(diffOutput).map { section ->
                     DiffSectionView(
                         filePath = section.filePath,
                         lines = section.lines,
                         groups = groupDiffRows(section.lines)
                     )
-                }
+                },
+                rawDiff = diffOutput
             )
         }
 

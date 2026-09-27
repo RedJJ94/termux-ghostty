@@ -14,6 +14,7 @@ import com.mrndtvndv.term.ui.CodeMatch
 import com.mrndtvndv.term.ui.ReviewNavKey
 import com.mrndtvndv.term.ui.buildHighlighted
 import com.mrndtvndv.term.ui.theme.codeFontFamily
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -107,6 +108,7 @@ fun GitReviewScreen(
     var diffSearchQuery by remember { mutableStateOf("") }
     var diffSearchMatchIndex by remember { mutableIntStateOf(0) }
     var diffSearchMatchCount by remember { mutableIntStateOf(0) }
+    val diffSearchController = remember { DiffSearchController() }
 
     val closeDiffSearch = {
         keyboardController?.hide()
@@ -122,8 +124,12 @@ fun GitReviewScreen(
 
     fun moveDiffSearchMatch(offset: Int) {
         if (diffSearchMatchCount == 0) return
-        diffSearchMatchIndex =
-            (diffSearchMatchIndex + offset + diffSearchMatchCount) % diffSearchMatchCount
+        if (diffSearchController.findNextAction != null) {
+            diffSearchController.findNext(offset > 0)
+        } else {
+            diffSearchMatchIndex =
+                (diffSearchMatchIndex + offset + diffSearchMatchCount) % diffSearchMatchCount
+        }
     }
 
     val stagedFileCount = (uiState as? ReviewUiState.Success)?.stagedFiles?.size ?: 0
@@ -596,6 +602,7 @@ fun GitReviewScreen(
                                 searchVisible = isDiffSearchVisible,
                                 searchQuery = diffSearchQuery,
                                 searchMatchIndex = diffSearchMatchIndex,
+                                searchController = diffSearchController,
                                 onSearchMatchCountChange = { diffSearchMatchCount = it },
                                 onSearchMatchIndexChange = { diffSearchMatchIndex = it },
                                 showHeader = false
@@ -714,6 +721,7 @@ fun GitReviewScreen(
                                 searchVisible = isDiffSearchVisible,
                                 searchQuery = diffSearchQuery,
                                 searchMatchIndex = diffSearchMatchIndex,
+                                searchController = diffSearchController,
                                 onSearchMatchCountChange = { diffSearchMatchCount = it },
                                 onSearchMatchIndexChange = { diffSearchMatchIndex = it },
                                 showHeader = false
@@ -1656,6 +1664,7 @@ internal fun DiffViewer(
     searchVisible: Boolean = false,
     searchQuery: String = "",
     searchMatchIndex: Int = 0,
+    searchController: DiffSearchController? = null,
     onSearchMatchCountChange: (Int) -> Unit = {},
     onSearchMatchIndexChange: (Int) -> Unit = {},
     showHeader: Boolean = false
@@ -1701,7 +1710,26 @@ internal fun DiffViewer(
                 }
                 is DiffContentState.Error -> EmptyDiffMessage(content.message)
                 is DiffContentState.Ready -> {
-                    if (content.sections.isEmpty()) {
+                    val rawDiff = content.rawDiff
+                    if (rawDiff.contains("Binary files ") && rawDiff.contains(" differ")) {
+                        EmptyDiffMessage("Binary file changed (diff not available).")
+                    } else if (rawDiff.isNotBlank()) {
+                        val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+                        PierreDiffView(
+                            rawDiff = rawDiff,
+                            settings = DiffDisplaySettings(
+                                isDarkTheme = isDark,
+                                showLineNumbers = showLineNumbers,
+                                isWordDiffEnabled = isWordDiffEnabled
+                            ),
+                            search = DiffSearchState(
+                                query = if (searchVisible) searchQuery else "",
+                                controller = searchController,
+                                onMatchCountChange = onSearchMatchCountChange,
+                                onMatchIndexChange = onSearchMatchIndexChange
+                            )
+                        )
+                    } else if (content.sections.isEmpty()) {
                         EmptyDiffMessage("No changes detected in file.")
                     } else {
                         DiffContent(

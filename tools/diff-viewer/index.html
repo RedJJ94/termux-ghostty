@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=yes">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:;">
+  <title>Diff Viewer</title>
+  <style>
+    :root {
+      --diffs-font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      color-scheme: light dark;
+    }
+    * {
+      box-sizing: border-box;
+      touch-action: pan-x pan-y;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      min-height: 100%;
+      background-color: #121212;
+      color: #e0e0e0;
+      font-family: var(--diffs-font-family);
+      -webkit-font-smoothing: antialiased;
+      -webkit-text-size-adjust: 100%;
+      touch-action: pan-x pan-y;
+      overflow-x: hidden;
+    }
+    #diff-root {
+      width: 100%;
+      max-width: 100vw;
+      min-height: 100%;
+      padding: 8px 0;
+      touch-action: pan-x pan-y;
+    }
+    .file-diff-item {
+      width: 100%;
+      max-width: 100vw;
+      overflow-x: hidden;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      touch-action: pan-x pan-y;
+    }
+    .file-diff-item > * {
+      max-width: 100%;
+    }
+    .file-diff-item:last-child {
+      border-bottom: none;
+    }
+    /* Touch scroll optimization */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(128, 128, 128, 0.3);
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+  <div id="diff-root"></div>
+  <script type="module" src="/src/index.ts"></script>
+</body>
+</html>
