@@ -6,9 +6,11 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.IBinder
 import androidx.lifecycle.Lifecycle
+import com.mrndtvndv.term.R
 import com.mrndtvndv.term.data.prefs.SharedPreferencesWorkspacePersistence
 import com.mrndtvndv.term.service.SshSessionService
 import com.mrndtvndv.term.ui.sftp.transfer.SftpTransferManager
@@ -180,7 +182,10 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
             com.termux.shared.notification.NotificationUtils.NOTIFICATION_MODE_ALL,
         ) ?: return
 
-        builder.setSmallIcon(android.R.drawable.ic_dialog_info)
+        builder.setSmallIcon(R.drawable.ic_notification)
+        builder.setLargeIcon(
+            BitmapFactory.decodeResource(appContext.resources, R.mipmap.ic_launcher)
+        )
         builder.setAutoCancel(true)
 
         notificationManager.notify(

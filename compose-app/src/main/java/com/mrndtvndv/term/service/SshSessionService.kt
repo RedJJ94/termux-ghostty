@@ -7,12 +7,14 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.mrndtvndv.term.MainActivity
+import com.mrndtvndv.term.R
 import com.mrndtvndv.term.server.AppSessionManager
 import com.termux.terminal.TerminalSession
 import java.util.concurrent.ConcurrentHashMap
@@ -215,7 +217,8 @@ class SshSessionService : Service() {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setLargeIcon(BitmapFactory.decodeResource(resources, R.mipmap.ic_launcher))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
