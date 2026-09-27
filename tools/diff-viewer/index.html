@@ -8,7 +8,11 @@
   <style>
     :root {
       --diffs-font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      --diffs-header-active-bg: rgba(255, 255, 255, 0.08);
       color-scheme: light dark;
+    }
+    :root[data-theme="light"], [data-theme="light"] {
+      --diffs-header-active-bg: rgba(0, 0, 0, 0.06);
     }
     * {
       box-sizing: border-box;
@@ -40,12 +44,43 @@
       overflow-x: hidden;
       border-bottom: 1px solid rgba(255, 255, 255, 0.1);
       touch-action: pan-x pan-y;
+      transition: margin-bottom 0.15s ease;
     }
     .file-diff-item > * {
       max-width: 100%;
     }
     .file-diff-item:last-child {
       border-bottom: none;
+    }
+    .file-diff-item[data-collapsed="true"] {
+      margin-bottom: 4px !important;
+    }
+    .file-diff-item[data-collapsed="true"] .diff-empty-notice {
+      display: none !important;
+    }
+    .diff-collapse-chevron {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      margin-right: 6px;
+      color: var(--diffs-fg-number, #888);
+      flex-shrink: 0;
+      vertical-align: middle;
+      cursor: pointer;
+    }
+    .diff-collapse-chevron svg {
+      display: block;
+      width: 13px;
+      height: 13px;
+      transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+      transform: rotate(0deg);
+    }
+    .file-diff-item[data-collapsed="true"] .diff-collapse-chevron svg,
+    [data-collapsed="true"] .diff-collapse-chevron svg,
+    .diff-collapse-chevron[data-collapsed="true"] svg {
+      transform: rotate(-90deg);
     }
     /* Touch scroll optimization */
     ::-webkit-scrollbar {

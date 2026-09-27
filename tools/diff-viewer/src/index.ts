@@ -30,6 +30,11 @@ declare global {
       setDiffStyle: (style: 'split' | 'unified') => void;
       setLineNumbers: (show: boolean) => void;
       setWordDiff: (enabled: boolean) => void;
+      collapseAll: () => void;
+      expandAll: () => void;
+      toggleAll: () => void;
+      toggleFile: (index: number) => void;
+      setFileCollapsed: (index: number, collapsed: boolean) => void;
       clear: () => void;
     };
   }
@@ -83,6 +88,17 @@ function createDiffInstance(options: RenderOptions): FileDiff {
     overflow: 'scroll',
     preferredHighlighter: 'shiki-js',
     tokenizeMaxLineLength: 1000,
+    renderHeaderPrefix: () => {
+      const chevron = document.createElement('span');
+      chevron.className = 'diff-collapse-chevron';
+      chevron.setAttribute('aria-hidden', 'true');
+      chevron.innerHTML = `
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+          <path fill-rule="evenodd" d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z"/>
+        </svg>
+      `;
+      return chevron;
+    },
     unsafeCSS: `
       [data-code] {
         touch-action: pan-x pan-y !important;
@@ -91,8 +107,132 @@ function createDiffInstance(options: RenderOptions): FileDiff {
       [data-column-number], [data-gutter], [data-gutter-buffer] {
         touch-action: pan-x pan-y !important;
       }
+      [data-diffs-header] {
+        cursor: pointer !important;
+        user-select: none !important;
+        -webkit-user-select: none !important;
+        -webkit-tap-highlight-color: transparent !important;
+        transition: background-color 0.15s ease !important;
+      }
+      [data-diffs-header]:active {
+        background-color: var(--diffs-header-active-bg, rgba(255, 255, 255, 0.08)) !important;
+      }
+      :host([data-collapsed="true"]) pre,
+      [data-collapsed="true"] pre {
+        display: none !important;
+      }
     `,
   });
+}
+
+function setFileCollapsed(item: HTMLElement, collapsed: boolean) {
+  const diffsContainer = (
+    item.tagName.toLowerCase() === 'diffs-container'
+      ? item
+      : item.querySelector('diffs-container')
+  ) as HTMLElement | null;
+  const anyContainer = diffsContainer as any;
+
+  if (collapsed) {
+    item.setAttribute('data-collapsed', 'true');
+    diffsContainer?.setAttribute('data-collapsed', 'true');
+  } else {
+    item.removeAttribute('data-collapsed');
+    diffsContainer?.removeAttribute('data-collapsed');
+  }
+
+  const pre = anyContainer?.pre || diffsContainer?.shadowRoot?.querySelector('pre');
+  if (pre) {
+    pre.style.display = collapsed ? 'none' : '';
+  }
+
+  const notices = item.querySelectorAll<HTMLElement>('.diff-empty-notice');
+  for (const notice of notices) {
+    notice.style.display = collapsed ? 'none' : '';
+  }
+
+  const chevrons = (diffsContainer || item).querySelectorAll('.diff-collapse-chevron');
+  for (const chevron of chevrons) {
+    if (collapsed) {
+      chevron.setAttribute('data-collapsed', 'true');
+    } else {
+      chevron.removeAttribute('data-collapsed');
+    }
+  }
+}
+
+function setupCollapsible(instance: FileDiff, container: HTMLElement) {
+  const anyInst = instance as any;
+  const diffsContainer: HTMLElement | null =
+    anyInst.fileContainer || container.querySelector('diffs-container');
+  if (!diffsContainer) return;
+
+  const shadowRoot = diffsContainer.shadowRoot;
+  const header: HTMLElement | null =
+    anyInst.headerElement || shadowRoot?.querySelector('[data-diffs-header]');
+  if (!header) return;
+
+  header.addEventListener('click', (e: MouseEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('a, button, input, select, textarea')) {
+      return;
+    }
+    const isCurrentlyCollapsed = container.hasAttribute('data-collapsed');
+    setFileCollapsed(container, !isCurrentlyCollapsed);
+  });
+}
+
+function reapplyCollapsedStates() {
+  const items = rootElement.querySelectorAll<HTMLElement>('.file-diff-item');
+  for (const item of items) {
+    if (item.hasAttribute('data-collapsed')) {
+      setFileCollapsed(item, true);
+    }
+  }
+}
+
+function collapseAll() {
+  const items = rootElement.querySelectorAll<HTMLElement>('.file-diff-item');
+  for (const item of items) {
+    setFileCollapsed(item, true);
+  }
+}
+
+function expandAll() {
+  const items = rootElement.querySelectorAll<HTMLElement>('.file-diff-item');
+  for (const item of items) {
+    setFileCollapsed(item, false);
+  }
+}
+
+function toggleAll() {
+  const items = rootElement.querySelectorAll<HTMLElement>('.file-diff-item');
+  let anyExpanded = false;
+  for (const item of items) {
+    if (!item.hasAttribute('data-collapsed')) {
+      anyExpanded = true;
+      break;
+    }
+  }
+  for (const item of items) {
+    setFileCollapsed(item, anyExpanded);
+  }
+}
+
+function toggleFile(index: number) {
+  const items = rootElement.querySelectorAll<HTMLElement>('.file-diff-item');
+  if (index >= 0 && index < items.length) {
+    const item = items[index];
+    const isCollapsed = item.hasAttribute('data-collapsed');
+    setFileCollapsed(item, !isCollapsed);
+  }
+}
+
+function setFileCollapsedByIndex(index: number, collapsed: boolean) {
+  const items = rootElement.querySelectorAll<HTMLElement>('.file-diff-item');
+  if (index >= 0 && index < items.length) {
+    setFileCollapsed(items[index], collapsed);
+  }
 }
 
 function cleanupActiveInstances() {
@@ -165,6 +305,7 @@ async function renderPatch(patchString: string, optionsJson?: string) {
         if (hunkCount === 0) {
           const isBinary = /^Binary files .+ differ\s*$/m.test(patchString) || /^GIT binary patch/m.test(patchString);
           const notice = document.createElement('div');
+          notice.className = 'diff-empty-notice';
           notice.style.padding = '16px';
           notice.style.color = 'var(--diffs-fg-number, #888)';
           notice.style.fontFamily = 'var(--diffs-font-family, monospace)';
@@ -174,6 +315,8 @@ async function renderPatch(patchString: string, optionsJson?: string) {
             : 'No content changes (mode change or empty file).';
           container.appendChild(notice);
         }
+
+        setupCollapsible(instance, container);
       }
     }
 
@@ -239,6 +382,8 @@ async function renderFiles(
       fileDiff,
       containerWrapper: container,
     });
+
+    setupCollapsible(instance, container);
 
     applyLineNumbersToDOM(currentOptions.showLineNumbers !== false);
     window.AndroidDiffBridge?.onRenderComplete?.(1, fileDiff.hunks?.length || 0);
@@ -362,6 +507,7 @@ function setDiffStyle(style: 'split' | 'unified') {
       // ignore
     }
   }
+  reapplyCollapsedStates();
   requestAnimationFrame(() => {
     window.scrollTo(scrollX, scrollY);
   });
@@ -392,6 +538,7 @@ function setWordDiff(enabled: boolean) {
       // ignore
     }
   }
+  reapplyCollapsedStates();
   requestAnimationFrame(() => {
     window.scrollTo(scrollX, scrollY);
   });
@@ -413,5 +560,10 @@ window.diffViewer = {
   setDiffStyle,
   setLineNumbers,
   setWordDiff,
+  collapseAll,
+  expandAll,
+  toggleAll,
+  toggleFile,
+  setFileCollapsed: setFileCollapsedByIndex,
   clear,
 };
