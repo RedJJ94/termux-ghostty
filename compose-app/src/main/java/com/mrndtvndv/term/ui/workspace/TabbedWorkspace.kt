@@ -116,11 +116,21 @@ fun TabbedWorkspace(
     val keyboardVisibilityTracker = remember(session) { SoftKeyboardVisibilityTracker() }
     val currentRememberKeyboardState = rememberUpdatedState(rememberSoftKeyboardState)
     val currentOnSoftKeyboardStateChanged = rememberUpdatedState(onSoftKeyboardStateChanged)
-    LaunchedEffect(imeController, imeVisibility, activeTab, isLifecycleResumed) {
+    val isTerminalActive = activeTab == WorkspaceTab.Terminal &&
+        pagerState.settledPage == 0 &&
+        !pagerState.isScrollInProgress
+    val isSftpActive = activeTab == WorkspaceTab.Sftp &&
+        pagerState.settledPage == activeTabs.indexOf(WorkspaceTab.Sftp) &&
+        !pagerState.isScrollInProgress
+    val isReviewActive = activeTab == WorkspaceTab.Review &&
+        pagerState.settledPage == activeTabs.indexOf(WorkspaceTab.Review) &&
+        !pagerState.isScrollInProgress
+
+    LaunchedEffect(imeController, imeVisibility, isTerminalActive, isLifecycleResumed) {
         if (imeVisibility == TerminalImeVisibility.UNKNOWN) return@LaunchedEffect
         val visibilityToPersist = keyboardVisibilityTracker.observe(
             isVisible = imeVisibility == TerminalImeVisibility.VISIBLE,
-            isTerminalActive = activeTab == WorkspaceTab.Terminal,
+            isTerminalActive = isTerminalActive,
             isLifecycleResumed = isLifecycleResumed
         )
         if (visibilityToPersist != null && currentRememberKeyboardState.value) {
@@ -128,9 +138,9 @@ fun TabbedWorkspace(
         }
     }
     val currentLastSoftKeyboardState = rememberUpdatedState(lastSoftKeyboardState)
-    LaunchedEffect(session, activeTab, rememberSoftKeyboardState, isLifecycleResumed) {
+    LaunchedEffect(session, isTerminalActive, rememberSoftKeyboardState, isLifecycleResumed) {
         if (!rememberSoftKeyboardState) return@LaunchedEffect
-        if (activeTab != WorkspaceTab.Terminal || !isLifecycleResumed) return@LaunchedEffect
+        if (!isTerminalActive || !isLifecycleResumed) return@LaunchedEffect
         val stateToRestore = currentLastSoftKeyboardState.value
         if (stateToRestore == SoftKeyboardState.UNKNOWN) return@LaunchedEffect
         withFrameNanos { }
@@ -202,9 +212,11 @@ fun TabbedWorkspace(
     // Sync pagerState when activeTab changes (external sync only — tab taps drive the
     // pager directly via animateScrollToPage and propagate back through settledPage,
     // so the two paths never run competing animations that replace pages mid-layout).
+    // Programmatic jumps (in-app notifications, back press, external navigation) snap
+    // immediately to avoid mid-transition focus and layout races aborting the scroll.
     LaunchedEffect(activePageIndex) {
-        if (pagerState.currentPage != activePageIndex && !pagerState.isScrollInProgress) {
-            pagerState.animateScrollToPage(activePageIndex)
+        if (pagerState.currentPage != activePageIndex || pagerState.currentPageOffsetFraction != 0f) {
+            pagerState.scrollToPage(activePageIndex)
         }
     }
 
@@ -326,7 +338,7 @@ fun TabbedWorkspace(
                                     onUploadMedia = onUploadMedia,
                                     onUploadFile = onUploadFile,
                                     onCommitContent = onCommitContent,
-                                    isTerminalActive = activeTab == WorkspaceTab.Terminal,
+                                    isTerminalActive = isTerminalActive,
                                     onBackendCreated = onBackendCreated,
                                     onBackendReleased = onBackendReleased,
                                     onOpenUrl = onOpenUrl,
@@ -383,7 +395,7 @@ fun TabbedWorkspace(
                         if (sftpViewModel != null) {
                             SftpFileBrowser(
                                 viewModel = sftpViewModel,
-                                isTabActive = activeTab == WorkspaceTab.Sftp,
+                                isTabActive = isSftpActive,
                                 onOpenFile = onOpenFile,
                                 onOpenFileError = onOpenFileError
                             )
@@ -393,7 +405,7 @@ fun TabbedWorkspace(
                         if (reviewViewModel != null) {
                             GitReviewScreen(
                                 viewModel = reviewViewModel,
-                                isTabActive = activeTab == WorkspaceTab.Review,
+                                isTabActive = isReviewActive,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
