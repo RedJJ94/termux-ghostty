@@ -29,15 +29,22 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.webkit.WebViewAssetLoader
+import com.mrndtvndv.term.ui.theme.LocalCustomFontFamily
+import java.io.File
+import java.io.FileInputStream
+import java.io.IOException
 import java.util.Locale
 import org.json.JSONObject
 
 private const val AssetUrl = "https://appassets.androidplatform.net/assets/diff-viewer/index.html"
+private const val CustomFontPath = "/custom-font/font.ttf"
 
 internal data class DiffDisplaySettings(
     val isDarkTheme: Boolean,
     val showLineNumbers: Boolean,
-    val isWordDiffEnabled: Boolean
+    val isWordDiffEnabled: Boolean,
+    val useCustomFont: Boolean = false,
+    val fontVersion: Long = 0L
 )
 
 internal class DiffSearchController {
@@ -109,6 +116,31 @@ internal fun PierreDiffView(
             .build()
     }
 
+    SetupSearchListeners(webViewRef, search)
+    val resolvedSettings = rememberResolvedSettings(context, settings)
+
+    ManageWebViewLifecycle(webViewRef)
+    SyncDiffState(webViewRef, isPageLoaded, rawDiff, resolvedSettings)
+    SyncThemeAndStyle(webViewRef, isPageLoaded, resolvedSettings, bgColorHex, fgColorHex)
+    SyncSearch(webViewRef, isPageLoaded, search)
+
+    Box(modifier = modifier.fillMaxSize().background(surfaceColor)) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                createConfiguredWebView(ctx, bridge, assetLoader) {
+                    isPageLoaded = true
+                }.also { webViewRef = it }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SetupSearchListeners(
+    webViewRef: WebView?,
+    search: DiffSearchState
+) {
     DisposableEffect(webViewRef, search.controller) {
         search.controller?.findNextAction = { forward ->
             webViewRef?.findNext(forward)
@@ -129,21 +161,25 @@ internal fun PierreDiffView(
             webViewRef?.setFindListener(null)
         }
     }
+}
 
-    ManageWebViewLifecycle(webViewRef)
-    SyncDiffState(webViewRef, isPageLoaded, rawDiff, settings)
-    SyncThemeAndStyle(webViewRef, isPageLoaded, settings, bgColorHex, fgColorHex)
-    SyncSearch(webViewRef, isPageLoaded, search)
-
-    Box(modifier = modifier.fillMaxSize().background(surfaceColor)) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                createConfiguredWebView(ctx, bridge, assetLoader) {
-                    isPageLoaded = true
-                }.also { webViewRef = it }
-            }
-        )
+@Composable
+private fun rememberResolvedSettings(
+    context: android.content.Context,
+    settings: DiffDisplaySettings
+): DiffDisplaySettings {
+    val localCustomFont = LocalCustomFontFamily.current
+    return remember(settings, localCustomFont) {
+        val useCustom = settings.useCustomFont || (localCustomFont != null)
+        val version = if (settings.fontVersion != 0L) {
+            settings.fontVersion
+        } else if (useCustom) {
+            val fontFile = File(context.filesDir, "font.ttf")
+            if (fontFile.exists()) fontFile.lastModified() else 0L
+        } else {
+            0L
+        }
+        settings.copy(useCustomFont = useCustom, fontVersion = version)
     }
 }
 
@@ -184,6 +220,10 @@ private fun SyncDiffState(
             put("diffStyle", "unified")
             put("showLineNumbers", settings.showLineNumbers)
             put("isWordDiffEnabled", settings.isWordDiffEnabled)
+            put("useCustomFont", settings.useCustomFont)
+            if (settings.useCustomFont) {
+                put("fontUrl", "/custom-font/font.ttf?v=${settings.fontVersion}")
+            }
         }
         val optionsJson = options.toString()
         val escapedPatch = JSONObject.quote(rawDiff)
@@ -214,6 +254,15 @@ private fun SyncThemeAndStyle(
     LaunchedEffect(settings.isWordDiffEnabled, isPageLoaded) {
         if (webView == null || !isPageLoaded) return@LaunchedEffect
         webView.evaluateJavascript("window.diffViewer?.setWordDiff(${settings.isWordDiffEnabled});", null)
+    }
+
+    LaunchedEffect(settings.useCustomFont, settings.fontVersion, isPageLoaded) {
+        if (webView == null || !isPageLoaded) return@LaunchedEffect
+        val fontUrl = if (settings.useCustomFont) "/custom-font/font.ttf?v=${settings.fontVersion}" else ""
+        webView.evaluateJavascript(
+            "window.diffViewer?.setFontFamily(${settings.useCustomFont}, '$fontUrl');",
+            null
+        )
     }
 }
 
@@ -262,6 +311,26 @@ private class ScrollableDiffWebView(context: android.content.Context) : WebView(
     }
 }
 
+private fun handleCustomFontRequest(
+    context: android.content.Context,
+    path: String?
+): WebResourceResponse? {
+    if (path != CustomFontPath) return null
+    val fontFile = File(context.filesDir, "font.ttf")
+    if (!fontFile.isFile || fontFile.length() <= 0L) return null
+    return try {
+        WebResourceResponse("font/ttf", null, FileInputStream(fontFile)).apply {
+            responseHeaders = mapOf(
+                "Access-Control-Allow-Origin" to "*",
+                "Cache-Control" to "no-cache"
+            )
+        }
+    } catch (e: IOException) {
+        android.util.Log.w("PierreDiffView", "Failed to open custom font", e)
+        null
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 private fun createConfiguredWebView(
     context: android.content.Context,
@@ -298,7 +367,8 @@ private fun createConfiguredWebView(
                 view: WebView,
                 request: WebResourceRequest
             ): WebResourceResponse? {
-                return assetLoader.shouldInterceptRequest(request.url)
+                return handleCustomFontRequest(context, request.url.path)
+                    ?: assetLoader.shouldInterceptRequest(request.url)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {

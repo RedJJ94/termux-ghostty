@@ -7,6 +7,8 @@ interface RenderOptions {
   isWordDiffEnabled?: boolean;
   fontSize?: string;
   fontFamily?: string;
+  useCustomFont?: boolean;
+  fontUrl?: string;
 }
 
 interface AndroidBridge {
@@ -27,6 +29,7 @@ declare global {
         optionsJson?: string
       ) => Promise<void>;
       updateTheme: (isDark: boolean, bgColor?: string, fgColor?: string) => void;
+      setFontFamily: (useCustomFont: boolean, fontUrl?: string) => void;
       setDiffStyle: (style: 'split' | 'unified') => void;
       setLineNumbers: (show: boolean) => void;
       setWordDiff: (enabled: boolean) => void;
@@ -85,6 +88,46 @@ function syncPageBackground(isDark: boolean) {
   const resolved = bg ?? lastChromeBackground ?? (isDark ? '#121212' : '#ffffff');
   document.body.style.backgroundColor = resolved;
   rootElement.style.backgroundColor = resolved;
+}
+
+function setCustomFont(enabled: boolean, fontUrl?: string) {
+  currentOptions.useCustomFont = enabled;
+  if (fontUrl !== undefined) {
+    currentOptions.fontUrl = fontUrl;
+  }
+
+  let styleEl = document.getElementById('diffs-custom-font') as HTMLStyleElement | null;
+  if (enabled) {
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = 'diffs-custom-font';
+      document.head.appendChild(styleEl);
+    }
+    const resolvedUrl = (fontUrl && fontUrl.length > 0)
+      ? fontUrl
+      : (currentOptions.fontUrl || '/custom-font/font.ttf');
+    styleEl.textContent = `
+      @font-face {
+        font-family: 'AppCustomFont';
+        src: url('${resolvedUrl}');
+        font-display: swap;
+      }
+    `;
+    document.documentElement.style.setProperty(
+      '--diffs-font-family',
+      "'AppCustomFont', ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, \"Liberation Mono\", monospace"
+    );
+    document.documentElement.style.setProperty(
+      '--diffs-header-font-family',
+      "'AppCustomFont', system-ui, -apple-system, \"Segoe UI\", Roboto, \"Helvetica Neue\", \"Noto Sans\", \"Liberation Sans\", Arial, sans-serif"
+    );
+  } else {
+    if (styleEl) {
+      styleEl.remove();
+    }
+    document.documentElement.style.removeProperty('--diffs-font-family');
+    document.documentElement.style.removeProperty('--diffs-header-font-family');
+  }
 }
 
 function showMessage(text: string, isError = false) {
@@ -312,6 +355,9 @@ async function renderPatch(patchString: string, optionsJson?: string) {
     try {
       const parsed = JSON.parse(optionsJson);
       currentOptions = { ...currentOptions, ...parsed };
+      if (typeof parsed.useCustomFont === 'boolean') {
+        setCustomFont(parsed.useCustomFont, parsed.fontUrl);
+      }
     } catch {
       // ignore
     }
@@ -403,6 +449,9 @@ async function renderFiles(
     try {
       const parsed = JSON.parse(optionsJson);
       currentOptions = { ...currentOptions, ...parsed };
+      if (typeof parsed.useCustomFont === 'boolean') {
+        setCustomFont(parsed.useCustomFont, parsed.fontUrl);
+      }
     } catch {
       // ignore
     }
@@ -617,6 +666,7 @@ window.diffViewer = {
   renderPatch,
   renderFiles,
   updateTheme,
+  setFontFamily: setCustomFont,
   setDiffStyle,
   setLineNumbers,
   setWordDiff,

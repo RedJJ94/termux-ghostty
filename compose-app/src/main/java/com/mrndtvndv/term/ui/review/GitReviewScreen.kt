@@ -13,7 +13,10 @@ import androidx.navigation3.ui.NavDisplay
 import com.mrndtvndv.term.ui.CodeMatch
 import com.mrndtvndv.term.ui.ReviewNavKey
 import com.mrndtvndv.term.ui.buildHighlighted
+import com.mrndtvndv.term.ui.theme.LocalCustomFontFamily
 import com.mrndtvndv.term.ui.theme.codeFontFamily
+import java.io.File
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -1727,12 +1730,20 @@ internal fun DiffViewer(
                         EmptyDiffMessage("Binary file changed (diff not available).")
                     } else if (rawDiff.isNotBlank()) {
                         val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
+                        val useCustomFont = LocalCustomFontFamily.current != null
+                        val context = LocalContext.current
+                        val fontVersion = remember(useCustomFont) {
+                            val file = File(context.filesDir, "font.ttf")
+                            if (useCustomFont && file.exists()) file.lastModified() else 0L
+                        }
                         PierreDiffView(
                             rawDiff = rawDiff,
                             settings = DiffDisplaySettings(
                                 isDarkTheme = isDark,
                                 showLineNumbers = showLineNumbers,
-                                isWordDiffEnabled = isWordDiffEnabled
+                                isWordDiffEnabled = isWordDiffEnabled,
+                                useCustomFont = useCustomFont,
+                                fontVersion = fontVersion
                             ),
                             search = DiffSearchState(
                                 query = if (searchVisible) searchQuery else "",
