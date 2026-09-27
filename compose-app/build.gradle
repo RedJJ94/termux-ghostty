@@ -207,6 +207,50 @@ def findBunExecutable() {
 def diffViewerDir = file("${rootDir}/tools/diff-viewer")
 def diffViewerOutputDir = file("${projectDir}/src/main/assets/diff-viewer")
 
+def assertBunAvailable = { String bunPath ->
+    def bunFile = new File(bunPath)
+    if (!bunFile.exists() && bunPath == "bun") {
+        try {
+            def check = ["which", "bun"].execute()
+            if (check.waitFor() != 0) {
+                throw new GradleException(
+                    "Bun is required to build diff-viewer assets, but 'bun' was not found.\n" +
+                    "Please install Bun (https://bun.sh) or add it to PATH."
+                )
+            }
+        } catch (Exception e) {
+            if (e instanceof GradleException) throw e
+            throw new GradleException("Bun is required to build diff-viewer assets: " + e.message, e)
+        }
+    }
+}
+
+// Separate task because Project.exec() was removed in Gradle 9.
+// A dedicated Exec task with onlyIf keeps install up-to-date and avoids
+// executing another process from inside doFirst.
+def installDiffViewerDeps = tasks.register('installDiffViewerDeps', Exec) {
+    description = 'Installs diff-viewer dependencies using Bun'
+    group = 'build'
+
+    workingDir diffViewerDir
+
+    inputs.file("${diffViewerDir}/package.json")
+    if (file("${diffViewerDir}/bun.lock").exists()) {
+        inputs.file("${diffViewerDir}/bun.lock")
+    }
+    outputs.dir("${diffViewerDir}/node_modules")
+
+    def bunPath = findBunExecutable()
+    executable bunPath
+    args 'install', '--frozen-lockfile'
+
+    onlyIf { !file("${diffViewerDir}/node_modules").exists() }
+
+    doFirst {
+        assertBunAvailable(bunPath)
+    }
+}
+
 def buildDiffViewer = tasks.register('buildDiffViewer', Exec) {
     description = 'Compiles the diff-viewer web bundle into assets using Bun'
     group = 'build'
@@ -228,29 +272,12 @@ def buildDiffViewer = tasks.register('buildDiffViewer', Exec) {
     args 'run', 'build'
 
     doFirst {
-        def bunFile = new File(bunPath)
-        if (!bunFile.exists() && bunPath == "bun") {
-            try {
-                def check = ["which", "bun"].execute()
-                if (check.waitFor() != 0) {
-                    throw new GradleException(
-                        "Bun is required to build diff-viewer assets, but 'bun' was not found.\n" +
-                        "Please install Bun (https://bun.sh) or add it to PATH."
-                    )
-                }
-            } catch (Exception e) {
-                if (e instanceof GradleException) throw e
-                throw new GradleException("Bun is required to build diff-viewer assets: " + e.message, e)
-            }
-        }
-        def nodeModules = file("${diffViewerDir}/node_modules")
-        if (!nodeModules.exists()) {
-            project.exec {
-                workingDir diffViewerDir
-                commandLine bunPath, 'install', '--frozen-lockfile'
-            }
-        }
+        assertBunAvailable(bunPath)
     }
+}
+
+buildDiffViewer.configure {
+    dependsOn installDiffViewerDeps
 }
 
 tasks.named('preBuild').configure {
