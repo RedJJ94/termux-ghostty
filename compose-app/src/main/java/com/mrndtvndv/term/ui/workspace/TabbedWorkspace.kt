@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.mrndtvndv.term.CrashBreadcrumbs
 import com.mrndtvndv.term.ui.keyboard.SoftKeyboardState
 import com.mrndtvndv.term.ui.keyboard.SoftKeyboardVisibilityTracker
 import com.termux.terminal.TerminalSession
@@ -190,15 +191,32 @@ fun TabbedWorkspace(
         }
     }
 
-    // Sync pagerState when activeTab changes
+    // Sync pagerState when activeTab changes (external sync only — tab taps drive the
+    // pager directly via animateScrollToPage and propagate back through settledPage,
+    // so the two paths never run competing animations that replace pages mid-layout).
     LaunchedEffect(activePageIndex) {
         if (pagerState.currentPage != activePageIndex && !pagerState.isScrollInProgress) {
             pagerState.animateScrollToPage(activePageIndex)
         }
     }
 
-    // Sync external activeTab when pager is swiped by the user
+    // The tab list can shrink while the pager sits on a now-removed page (e.g. the
+    // session backing SFTP/Review goes away). Snap back to a valid page immediately;
+    // leaving currentPage out of bounds breaks the tab row and the pager's layout.
+    LaunchedEffect(activeTabs.size) {
+        if (pagerState.currentPage >= activeTabs.size) {
+            pagerState.scrollToPage(0)
+        }
+    }
+
+    // Sync external activeTab when pager is swiped by the user.
+    // Also records a breadcrumb for crash reports (see CrashBreadcrumbs).
     LaunchedEffect(pagerState.settledPage, activeTabs) {
+        CrashBreadcrumbs.setWorkspace(
+            tab = activeTab.title,
+            page = pagerState.settledPage,
+            tabCount = activeTabs.size,
+        )
         val tab = activeTabs.getOrNull(pagerState.settledPage) ?: WorkspaceTab.Terminal
         if (tab != activeTab) {
             if (tab == WorkspaceTab.Sftp || tab == WorkspaceTab.Review) {
@@ -215,7 +233,7 @@ fun TabbedWorkspace(
             if (activeTabs.size > 1 && !hideTabs) {
                 SecondaryTabRow(
                     modifier = Modifier.statusBarsPadding(),
-                    selectedTabIndex = pagerState.currentPage,
+                    selectedTabIndex = pagerState.currentPage.coerceIn(activeTabs.indices),
                     containerColor = MaterialTheme.colorScheme.surface,
                     contentColor = MaterialTheme.colorScheme.onSurface,
                 ) {
@@ -227,7 +245,6 @@ fun TabbedWorkspace(
                                 if (tab == WorkspaceTab.Sftp || tab == WorkspaceTab.Review) {
                                     onRefreshWorkspace()
                                 }
-                                onTabSelected(tab)
                                 coroutineScope.launch {
                                     pagerState.animateScrollToPage(index)
                                 }
@@ -251,7 +268,7 @@ fun TabbedWorkspace(
             state = pagerState,
             flingBehavior = flingBehavior,
             pageNestedScrollConnection = pageNestedScrollConnection,
-            key = { index -> activeTabs.getOrNull(index)?.let { "${index}_${it.title}" } ?: index.toString() },
+            key = { index -> activeTabs.getOrNull(index)?.title ?: index.toString() },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)

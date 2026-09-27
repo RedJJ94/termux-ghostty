@@ -39,6 +39,7 @@ class CrashReporter(private val context: Context) {
             Ecto crash report
             Time: $timestamp
             Thread: ${thread.name}
+            Breadcrumbs: ${CrashBreadcrumbs.snapshot()}
 
             $stackTrace
         """.trimIndent()
