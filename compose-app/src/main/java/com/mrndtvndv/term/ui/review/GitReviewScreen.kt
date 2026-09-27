@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -471,11 +472,22 @@ fun GitReviewScreen(
                     )
                 }
                 entry<ReviewNavKey.FileDiff> { navKey ->
+                    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(
+                        canScroll = { !isDiffSearchVisible }
+                    )
+                    LaunchedEffect(isDiffSearchVisible) {
+                        if (isDiffSearchVisible) {
+                            scrollBehavior.state.heightOffset = 0f
+                        }
+                    }
                     Scaffold(
-                        modifier = modifier.fillMaxSize(),
+                        modifier = modifier
+                            .fillMaxSize()
+                            .nestedScroll(scrollBehavior.nestedScrollConnection),
                         contentWindowInsets = WindowInsets(0, 0, 0, 0),
                         topBar = {
                             TopAppBar(
+                                scrollBehavior = scrollBehavior,
                                 windowInsets = WindowInsets(0, 0, 0, 0),
                                 title = {
                                     if (isDiffSearchVisible) {
@@ -614,11 +626,22 @@ fun GitReviewScreen(
                     }
                 }
                 entry<ReviewNavKey.CommitDiff> { navKey ->
+                    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(
+                        canScroll = { !isDiffSearchVisible }
+                    )
+                    LaunchedEffect(isDiffSearchVisible) {
+                        if (isDiffSearchVisible) {
+                            scrollBehavior.state.heightOffset = 0f
+                        }
+                    }
                     Scaffold(
-                        modifier = modifier.fillMaxSize(),
+                        modifier = modifier
+                            .fillMaxSize()
+                            .nestedScroll(scrollBehavior.nestedScrollConnection),
                         contentWindowInsets = WindowInsets(0, 0, 0, 0),
                         topBar = {
                             TopAppBar(
+                                scrollBehavior = scrollBehavior,
                                 windowInsets = WindowInsets(0, 0, 0, 0),
                                 title = {
                                     if (isDiffSearchVisible) {

@@ -186,7 +186,10 @@ function createDiffInstance(options: RenderOptions): FileDiff {
         user-select: none !important;
         -webkit-user-select: none !important;
         -webkit-tap-highlight-color: transparent !important;
-        transition: background-color 0.15s ease !important;
+        transition: background-color 0.15s ease, top 0.2s ease !important;
+      }
+      [data-diffs-header][data-sticky] {
+        top: var(--diffs-header-top, 0px) !important;
       }
       [data-diffs-header]:active {
         background-color: var(--diffs-header-active-bg, rgba(255, 255, 255, 0.08)) !important;
@@ -283,6 +286,62 @@ function installCollapseDelegation() {
 
 installCollapseDelegation();
 
+let resetScrollHeaderFn: (() => void) | null = null;
+
+function installScrollHeaderHiding() {
+  let lastScrollY = window.scrollY || 0;
+  let isHeaderCollapsed = false;
+  const SCROLL_THRESHOLD = 8;
+
+  const setHeaderTop = (top: string) => {
+    document.documentElement.style.setProperty('--diffs-header-top', top);
+  };
+
+  resetScrollHeaderFn = () => {
+    isHeaderCollapsed = false;
+    lastScrollY = window.scrollY || 0;
+    setHeaderTop('0px');
+  };
+
+  window.addEventListener(
+    'scroll',
+    () => {
+      const currentScrollY = window.scrollY || 0;
+      const delta = currentScrollY - lastScrollY;
+
+      if (currentScrollY <= 20) {
+        if (isHeaderCollapsed) {
+          isHeaderCollapsed = false;
+          setHeaderTop('0px');
+        }
+        lastScrollY = currentScrollY;
+        return;
+      }
+
+      if (Math.abs(delta) < SCROLL_THRESHOLD) {
+        return;
+      }
+
+      if (delta > 0 && currentScrollY > 50) {
+        if (!isHeaderCollapsed) {
+          isHeaderCollapsed = true;
+          setHeaderTop('-80px');
+        }
+      } else if (delta < 0) {
+        if (isHeaderCollapsed) {
+          isHeaderCollapsed = false;
+          setHeaderTop('0px');
+        }
+      }
+
+      lastScrollY = currentScrollY;
+    },
+    { passive: true }
+  );
+}
+
+installScrollHeaderHiding();
+
 function reapplyCollapsedStates() {
   const items = rootElement.querySelectorAll<HTMLElement>('.file-diff-item');
   for (const item of items) {
@@ -349,6 +408,7 @@ function cleanupActiveInstances() {
 }
 
 async function renderPatch(patchString: string, optionsJson?: string) {
+  resetScrollHeaderFn?.();
   lastRenderType = 'patch';
   lastPatchString = patchString;
   if (optionsJson) {
@@ -440,6 +500,7 @@ async function renderFiles(
   filename: string,
   optionsJson?: string
 ) {
+  resetScrollHeaderFn?.();
   lastRenderType = 'files';
   lastOldContent = oldContent;
   lastNewContent = newContent;
@@ -654,6 +715,7 @@ function setWordDiff(enabled: boolean) {
 }
 
 function clear() {
+  resetScrollHeaderFn?.();
   cleanupActiveInstances();
   lastRenderType = null;
   lastPatchString = '';
