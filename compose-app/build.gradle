@@ -179,28 +179,33 @@ dependencies {
 }
 
 def findBunExecutable() {
-    def candidates = [
-        "bun",
+    // Check explicit install locations before PATH lookup: inside
+    // `nix develop` the devShell bun shadows newer installs (e.g.
+    // oven-sh/setup-bun's ~/.bun/bin/bun in CI) via PATH ordering.
+    def candidates = []
+    def bunInstall = System.getenv("BUN_INSTALL")
+    if (bunInstall) {
+        candidates.add("${bunInstall}/bin/bun")
+    }
+    candidates.addAll([
         "${System.getProperty('user.home')}/.bun/bin/bun",
         "${System.getProperty('user.home')}/.nix-profile/bin/bun",
         "/opt/homebrew/bin/bun",
         "/usr/local/bin/bun",
         "/usr/bin/bun"
-    ]
+    ])
     for (String candidate : candidates) {
-        if (candidate == "bun") {
-            try {
-                def proc = ["which", "bun"].execute()
-                if (proc.waitFor() == 0) {
-                    def resolved = proc.text.trim()
-                    if (resolved && new File(resolved).canExecute()) return resolved
-                }
-            } catch (Exception ignored) {}
-        } else {
-            def f = new File(candidate)
-            if (f.exists() && f.canExecute()) return f.absolutePath
-        }
+        def f = new File(candidate)
+        if (f.exists() && f.canExecute()) return f.absolutePath
     }
+    // Fall back to PATH lookup (e.g. nix devShell or system install).
+    try {
+        def proc = ["sh", "-c", "command -v bun"].execute()
+        if (proc.waitFor() == 0) {
+            def resolved = proc.text.trim()
+            if (resolved && new File(resolved).canExecute()) return resolved
+        }
+    } catch (Exception ignored) {}
     return "bun"
 }
 
