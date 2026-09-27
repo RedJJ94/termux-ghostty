@@ -13,11 +13,12 @@ private const val HerdrCommandPrefix =
     "env PATH=\"\$PATH:\$HOME/.local/bin:\$HOME/.local/share/mise/shims:" +
         "/home/linuxbrew/.linuxbrew/bin:/opt/homebrew/bin:/usr/local/bin\" sh -c "
 
+
 /**
  * Parses Herdr workspace, pane, and agent command output.
  * Pure logic — no Android dependencies, testable with sample JSON.
  */
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LargeClass")
 class HerdrWorkspaceResolver(
     private val execCommand: suspend (String) -> String,
 ) {
@@ -141,32 +142,53 @@ class HerdrWorkspaceResolver(
         return HerdrFocusTarget(number, tabLabel)
     }
 
+    private data class ResolvedTab(
+        val tabId: String,
+        val agentPaneId: String? = null,
+    )
+
     /**
-     * Focus the workspace (and tab, when identifiable) named in a notification body.
+     * Focus the agent, tab, or workspace named in a notification body and optional title.
      *
-     * A body is captured when herdr fires the notification, so its target may have
-     * been closed by the time the user taps it. Targets are resolved against the live
-     * workspace/tab list and focused by id, which turns a stale body into a no-op
-     * instead of a `*_not_found` error. Focus is best-effort: command failures never
-     * propagate.
+     * Handles:
+     * 1. Structured Herdr workspace/tab context (`<label> · <N>[ · <tab>]`).
+     * 2. Agent notifications referencing conversation/session IDs (e.g. `(ee9c061f)`).
+     * 3. Notifications naming a workspace, focusing the relevant agent or workspace.
+     * 4. Generic agent completions, focusing the active or idle agent pane.
+     *
+     * Stale targets become a no-op instead of an error. Focus is best-effort:
+     * command failures never propagate.
      *
      * @return true when a focus command was issued
      */
-    suspend fun focusFromBody(body: String?): Boolean {
-        val target = parseFocusTarget(body) ?: return false
-        return focusBestEffort { focusTarget(target) }
+    suspend fun focusFromNotification(
+        body: String?,
+        title: String? = null,
+    ): Boolean = focusBestEffort {
+        if (!looksLikeHerdrNotification(body, title)) return@focusBestEffort false
+
+        val target = parseFocusTarget(body)
+        if (target != null) {
+            return@focusBestEffort focusTarget(target)
+        }
+
+        focusFromAgentOrWorkspace(body, title)
     }
+
+    /**
+     * Backward-compatible helper for focus from notification body only.
+     */
+    suspend fun focusFromBody(body: String?): Boolean =
+        focusFromNotification(body = body, title = null)
 
     private suspend fun focusTarget(target: HerdrFocusTarget): Boolean {
         val workspaceId = resolveWorkspaceId(target.workspaceNumber) ?: return false
-        val tabLabel = target.tabLabel ?: return focusWorkspace(workspaceId)
-        // A vanished tab falls back to its (already validated) workspace.
-        val tabId = resolveTabId(workspaceId, tabLabel)
-        return if (tabId == null) {
-            focusWorkspace(workspaceId)
-        } else {
-            execCommand(herdrCommand("herdr tab focus ${shellQuote(tabId)}"))
-            true
+        val tabLabel = target.tabLabel
+        val resolved = if (tabLabel != null) resolveTab(workspaceId, tabLabel) else null
+        return when {
+            resolved?.agentPaneId != null -> focusAgentPane(resolved.agentPaneId, resolved.tabId)
+            resolved != null -> focusTabId(resolved.tabId)
+            else -> focusWorkspace(workspaceId)
         }
     }
 
@@ -177,12 +199,68 @@ class HerdrWorkspaceResolver(
             ?.workspaceId
     }
 
-    private suspend fun resolveTabId(workspaceId: String, tabLabel: String): String? {
+    private suspend fun resolveTab(workspaceId: String, tabLabel: String): ResolvedTab? {
         val output = execCommand(
-            herdrCommand("herdr tab list --workspace ${shellQuote(workspaceId)}"),
+            herdrCommand(
+                "herdr tab list --workspace ${shellQuote(workspaceId)} && herdr agent list",
+            ),
         )
-        return findTabId(output, tabLabel)
+        val tabId = findTabId(output, tabLabel) ?: return null
+        val agents = parseAgentList(output)
+        val agentPaneId = agents.firstOrNull { it.workspaceId == workspaceId && it.tabId == tabId }?.paneId
+        return ResolvedTab(tabId = tabId, agentPaneId = agentPaneId)
     }
+
+    private suspend fun focusFromAgentOrWorkspace(body: String?, title: String?): Boolean {
+        val output = execCommand(herdrCommand("herdr agent list && herdr workspace list"))
+        val agents = parseAgentList(output)
+        val workspaces = parseWorkspaceEntries(output)
+        val workspaceLabels = parseWorkspaceLabels(output)
+
+        val matchedAgent = HerdrNotificationMatcher.findAgentBySessionToken(agents, body, title)
+        if (matchedAgent != null) {
+            return focusAgentPane(matchedAgent.paneId, matchedAgent.tabId)
+        }
+
+        return focusMatchedWorkspaceOrFallback(agents, workspaces, workspaceLabels, body, title)
+    }
+
+    private suspend fun focusMatchedWorkspaceOrFallback(
+        agents: List<HerdrAgentInfo>,
+        workspaces: List<WorkspaceEntry>,
+        workspaceLabels: Map<String, String>,
+        body: String?,
+        title: String?,
+    ): Boolean {
+        val matchedWorkspace = HerdrNotificationMatcher.findWorkspaceMatch(workspaces, workspaceLabels, body, title)
+        if (matchedWorkspace != null) {
+            val wsAgent = agents.filter { it.workspaceId == matchedWorkspace.workspaceId }
+                .minByOrNull { if (it.agentStatus == "idle") 0 else 1 }
+            return if (wsAgent != null) {
+                focusAgentPane(wsAgent.paneId, wsAgent.tabId)
+            } else {
+                focusWorkspace(matchedWorkspace.workspaceId)
+            }
+        }
+
+        val candidate = if (HerdrNotificationMatcher.isAgentCompletion(title, body)) {
+            agents.firstOrNull { it.agentStatus == "idle" } ?: agents.firstOrNull()
+        } else null
+
+        return candidate?.let { focusAgentPane(it.paneId, it.tabId) } ?: false
+    }
+
+    internal fun findAgentBySessionToken(
+        agents: List<HerdrAgentInfo>,
+        body: String?,
+        title: String?,
+    ): HerdrAgentInfo? = HerdrNotificationMatcher.findAgentBySessionToken(agents, body, title)
+
+    internal fun extractSessionCandidates(text: String?): List<String> =
+        HerdrNotificationMatcher.extractSessionCandidates(text)
+
+    internal fun looksLikeHerdrNotification(body: String?, title: String?): Boolean =
+        HerdrNotificationMatcher.looksLikeHerdrNotification(body, title)
 
     private suspend fun focusWorkspace(workspaceId: String): Boolean {
         execCommand(herdrCommand("herdr workspace focus ${shellQuote(workspaceId)}"))
@@ -304,21 +382,19 @@ class HerdrWorkspaceResolver(
         }
     }
 
-    /** Resolves a tab id by its positional number (unnamed tab) or custom label. */
-    private fun findTabId(output: String, tabLabel: String): String? {
+    /** Resolves a tab id by its custom label, sequential number, or positional index. */
+    internal fun findTabId(output: String, tabLabel: String): String? {
         val tabNumber = tabLabel.toIntOrNull()
         output.lines().forEach { line ->
             val parsed = parseHerdrLine(line) ?: return@forEach
             if (parsed.first != "cli:tab:list") return@forEach
             val tabArray = parsed.second["tabs"]?.jsonArray ?: return@forEach
-            for (tab in tabArray) {
+            for ((index, tab) in tabArray.withIndex()) {
                 val tabObj = runCatching { tab.jsonObject }.getOrNull() ?: continue
-                val matches = if (tabNumber != null) {
-                    jsonContent(tabObj, "number")?.toIntOrNull() == tabNumber
-                } else {
-                    jsonContent(tabObj, "label") == tabLabel
-                }
-                if (matches) {
+                val labelMatches = jsonContent(tabObj, "label") == tabLabel
+                val numberMatches = tabNumber != null && jsonContent(tabObj, "number")?.toIntOrNull() == tabNumber
+                val positionMatches = tabNumber != null && (index + 1) == tabNumber
+                if (labelMatches || numberMatches || positionMatches) {
                     return jsonContent(tabObj, "tab_id")?.takeIf { it.isNotEmpty() }
                 }
             }
@@ -669,7 +745,7 @@ class HerdrWorkspaceResolver(
     private fun jsonBoolean(element: JsonObject, key: String): Boolean? =
         runCatching { element[key]?.jsonPrimitive?.booleanOrNull }.getOrNull()
 
-    private data class WorkspaceEntry(
+    internal data class WorkspaceEntry(
         val workspaceId: String,
         val number: Int?,
         val order: Int,

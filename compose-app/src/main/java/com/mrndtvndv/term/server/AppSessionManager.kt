@@ -153,6 +153,7 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
 
         val intent = Intent(appContext, com.mrndtvndv.term.MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_NOTIFICATION_TITLE, normalizedTitle)
             putExtra(EXTRA_NOTIFICATION_BODY, normalizedBody)
             if (serverId != null) {
                 putExtra(EXTRA_NOTIFICATION_SERVER_ID, serverId)
@@ -304,6 +305,8 @@ class AppSessionManager private constructor(context: Context) : AppSessionManage
     companion object {
         /** Intent extra: originating server id for a tapped terminal notification. */
         const val EXTRA_NOTIFICATION_SERVER_ID = "termux.terminal.notification.server_id"
+        /** Intent extra: notification title, for identifying originating agent or command. */
+        const val EXTRA_NOTIFICATION_TITLE = "termux.terminal.notification.title"
         /** Intent extra: notification body, so the tap handler can re-parse the focus target. */
         const val EXTRA_NOTIFICATION_BODY = "termux.terminal.notification.body"
 

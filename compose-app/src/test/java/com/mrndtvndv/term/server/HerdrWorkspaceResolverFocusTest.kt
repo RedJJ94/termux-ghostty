@@ -453,4 +453,117 @@ class HerdrWorkspaceResolverFocusTest {
         val agentPane = workspaces.single().tabs.single().panes.first { it.agent == "hermes" }
         assertEquals("hermes-title", agentPane.agentSessionName)
     }
+
+    // ── notification focus and candidate resolution ───────────────────
+
+    @Test
+    fun `findTabId matches tab by string label when number is a non-matching sequential ID`() {
+        val tabListJson =
+            """{"id":"cli:tab:list","result":{"type":"tab_list","tabs":[""" +
+                """{"tab_id":"w1TC:tD","workspace_id":"w1TC","number":13,"label":"1","focused":false},""" +
+                """{"tab_id":"w1TC:tH","workspace_id":"w1TC","number":17,"label":"2","focused":true}]}}"""
+
+        val tabId = resolver { "" }.findTabId(tabListJson, "2")
+        assertEquals("w1TC:tH", tabId)
+    }
+
+    @Test
+    fun `extractSessionCandidates extracts parenthesized and raw session IDs`() {
+        val r = resolver { "" }
+        val candidates1 = r.extractSessionCandidates("Finished task in termux-ghostty (ee9c061f)")
+        assertEquals(listOf("ee9c061f"), candidates1)
+
+        val candidates2 = r.extractSessionCandidates("Finished task in repo (72d3df1d-1d68-4806-b3d3-a196cc762ea4)")
+        assertEquals(listOf("72d3df1d-1d68-4806-b3d3-a196cc762ea4"), candidates2)
+
+        assertTrue(r.extractSessionCandidates("SFTP Error").isEmpty())
+    }
+
+    @Test
+    fun `looksLikeHerdrNotification identifies herdr notifications and filters noise`() {
+        val r = resolver { "" }
+        assertTrue(r.looksLikeHerdrNotification("Finished task in termux-ghostty (ee9c061f)", "Agent Done"))
+        assertTrue(r.looksLikeHerdrNotification("Task completed", "Agent Done"))
+        assertTrue(r.looksLikeHerdrNotification("proj · 1 · 2", null))
+        assertTrue(r.looksLikeHerdrNotification(null, "agy finished"))
+        assertFalse(r.looksLikeHerdrNotification("SFTP Error", null))
+        assertFalse(r.looksLikeHerdrNotification("Paste rejected", null))
+        assertFalse(r.looksLikeHerdrNotification(null, null))
+    }
+
+    @Test
+    fun `notification with agent conversation id focuses agent pane and tab`() = runTest {
+        val commands = mutableListOf<String>()
+        val agentListOutput = """
+            {"id":"cli:agent:list","result":{"type":"agent_list","agents":[{"agent":"agy","agent_session":{"agent":"agy","kind":"id","source":"herdr:antigravity_cli","value":"ee9c061f-6eee-4a79-bbb7-057614d8c1d2"},"agent_status":"idle","cwd":"/work","workspace_id":"w1TC","tab_id":"w1TC:tH","pane_id":"w1TC:pM","terminal_id":"term0","focused":false,"terminal_title":"agy"}]}}
+            {"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[{"workspace_id":"w1TC","label":"termux-ghostty","focused":true}]}}
+        """.trimIndent()
+        val focusOutput =
+            """{"id":"cli:agent:focus","result":{"type":"agent_info","agent":{"pane_id":"w1TC:pM"}}}"""
+
+        val result = resolver { cmd ->
+            commands += cmd
+            if (cmd.contains("herdr agent focus")) focusOutput else agentListOutput
+        }.focusFromNotification(
+            body = "Finished task in termux-ghostty (ee9c061f)",
+            title = "Agent Done",
+        )
+
+        assertTrue(result)
+        assertEquals(2, commands.size)
+        assertTrue(commands[0].contains("herdr agent list && herdr workspace list"))
+        assertTrue(commands[1].contains("herdr agent focus") && commands[1].contains("w1TC:pM"))
+        assertTrue(commands[1].contains("herdr tab focus") && commands[1].contains("w1TC:tH"))
+    }
+
+    @Test
+    fun `notification with workspace label focuses agent in that workspace`() = runTest {
+        val commands = mutableListOf<String>()
+        val agentListOutput = """
+            {"id":"cli:agent:list","result":{"type":"agent_list","agents":[{"agent":"agy","agent_status":"idle","cwd":"/work","workspace_id":"w1TC","tab_id":"w1TC:tH","pane_id":"w1TC:pM","terminal_id":"term0","focused":false,"terminal_title":"agy"}]}}
+            {"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[{"workspace_id":"w1TC","label":"termux-ghostty","focused":true}]}}
+        """.trimIndent()
+        val focusOutput =
+            """{"id":"cli:agent:focus","result":{"type":"agent_info","agent":{"pane_id":"w1TC:pM"}}}"""
+
+        val result = resolver { cmd ->
+            commands += cmd
+            if (cmd.contains("herdr agent focus")) focusOutput else agentListOutput
+        }.focusFromNotification(
+            body = "Finished task in termux-ghostty",
+            title = "Agent Done",
+        )
+
+        assertTrue(result)
+        assertEquals(2, commands.size)
+        assertTrue(commands[1].contains("herdr agent focus") && commands[1].contains("w1TC:pM"))
+    }
+
+    @Test
+    fun `structured target with agent pane focuses both agent pane and tab`() = runTest {
+        val commands = mutableListOf<String>()
+        val tabListWithAgent = """
+            {"id":"cli:tab:list","result":{"type":"tab_list","tabs":[{"tab_id":"w0:t2","workspace_id":"w0","number":17,"label":"2","focused":true}]}}
+            {"id":"cli:agent:list","result":{"type":"agent_list","agents":[{"agent":"agy","agent_status":"idle","cwd":"/work","workspace_id":"w0","tab_id":"w0:t2","pane_id":"w0:pM","terminal_id":"term0","focused":true,"terminal_title":"agy"}]}}
+        """.trimIndent()
+        val focusOutput =
+            """{"id":"cli:agent:focus","result":{"type":"agent_info","agent":{"pane_id":"w0:pM"}}}"""
+
+        val result = resolver { cmd ->
+            commands += cmd
+            when {
+                cmd.contains("herdr workspace list") -> workspaceListJson
+                cmd.contains("herdr tab list") -> tabListWithAgent
+                cmd.contains("herdr agent focus") -> focusOutput
+                else -> ""
+            }
+        }.focusFromBody("myproj · 2 · 2")
+
+        assertTrue(result)
+        assertEquals(3, commands.size)
+        assertTrue(commands[0].contains("herdr workspace list"))
+        assertTrue(commands[1].contains("herdr tab list --workspace") && commands[1].contains("herdr agent list"))
+        assertTrue(commands[2].contains("herdr agent focus") && commands[2].contains("w0:pM"))
+        assertTrue(commands[2].contains("herdr tab focus") && commands[2].contains("w0:t2"))
+    }
 }

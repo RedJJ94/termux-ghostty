@@ -204,9 +204,13 @@ class MainViewModel(
 
     /**
      * Handle a tapped terminal notification by selecting its terminal session and,
-     * when available, focusing the Herdr target from the notification body.
+     * when available, focusing the Herdr target from the notification body and title.
      */
-    fun focusTerminalNotification(serverId: String?, body: String?) {
+    fun focusTerminalNotification(
+        serverId: String?,
+        body: String?,
+        title: String? = null,
+    ) {
         val targetServerId = serverId ?: return
         if (coordinator.getServer(targetServerId) != null) {
             _uiState.value = _uiState.value.copy(
@@ -219,7 +223,7 @@ class MainViewModel(
             connect(targetServerId)
         }
 
-        focusHerdr(targetServerId) { focusFromBody(body) }
+        focusHerdr(targetServerId) { focusFromNotification(body, title) }
     }
 
     private fun herdrResolver(serverId: String): HerdrWorkspaceResolver? {

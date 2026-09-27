@@ -575,7 +575,7 @@ fun MainContent(
                     onDismiss = { viewModel.notificationState.dismiss() },
                     onClick = {
                         notification?.let {
-                            viewModel.focusTerminalNotification(it.serverId, it.body)
+                            viewModel.focusTerminalNotification(it.serverId, it.body, it.title)
                         }
                         viewModel.notificationState.dismiss()
                     },

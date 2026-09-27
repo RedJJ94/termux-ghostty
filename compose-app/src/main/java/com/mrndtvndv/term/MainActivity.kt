@@ -425,8 +425,11 @@ class MainActivity : ComponentActivity(), SessionHost {
     private fun handleNotificationTap(intent: Intent?) {
         val serverId = intent?.getStringExtra(AppSessionManager.EXTRA_NOTIFICATION_SERVER_ID) ?: return
         intent.removeExtra(AppSessionManager.EXTRA_NOTIFICATION_SERVER_ID)
+        val title = intent.getStringExtra(AppSessionManager.EXTRA_NOTIFICATION_TITLE)
+        intent.removeExtra(AppSessionManager.EXTRA_NOTIFICATION_TITLE)
         val body = intent.getStringExtra(AppSessionManager.EXTRA_NOTIFICATION_BODY)
-        viewModel.focusTerminalNotification(serverId, body)
+        intent.removeExtra(AppSessionManager.EXTRA_NOTIFICATION_BODY)
+        viewModel.focusTerminalNotification(serverId, body, title)
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
