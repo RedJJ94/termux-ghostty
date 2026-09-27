@@ -379,6 +379,7 @@ private fun processIconResource(processName: String?): Int? = when (
     "bun", "bunx" -> R.drawable.agent_bun
     "cargo", "rustc" -> R.drawable.agent_cargo
     "git", "lazygit", "gitui", "tig" -> R.drawable.agent_git
+    "pig" -> R.drawable.agent_pig
     else -> null
 }
 
