@@ -15,6 +15,7 @@ interface AndroidBridge {
   onRenderComplete?: (fileCount: number, hunkCount: number) => void;
   onError?: (errorMessage: string) => void;
   onFileClick?: (fileName: string) => void;
+  onHorizontalScrollState?: (canScrollLeft: boolean, canScrollRight: boolean) => void;
 }
 
 declare global {
@@ -285,6 +286,75 @@ function installCollapseDelegation() {
 }
 
 installCollapseDelegation();
+
+/**
+ * Horizontal scroll-edge reporting for tab-swipe handoff.
+ *
+ * Code scrolling lives inside inner elements ([data-code] inside the
+ * <diffs-container> shadow root) while html/body has overflow-x: hidden,
+ * so native WebView.canScrollHorizontally() always reports false. Detect
+ * the active scrollable container in JS (piercing shadow roots via
+ * composedPath + getRootNode().host) and push canScrollLeft/Right to the
+ * native DiffBridge. Native uses this to decide whether a horizontal drag
+ * scrolls code or is handed to the parent HorizontalPager as a tab swipe.
+ */
+function findHorizontalScrollable(target: EventTarget | null): HTMLElement | null {
+  let el = target as HTMLElement | null;
+  while (el && el !== document.body && el !== document.documentElement) {
+    if (el instanceof HTMLElement && el.scrollWidth > el.clientWidth + 2) {
+      try {
+        const style = window.getComputedStyle(el);
+        const overflowX = style.overflowX;
+        if (overflowX === 'auto' || overflowX === 'scroll') {
+          return el;
+        }
+      } catch {
+        // getComputedStyle can throw on detached nodes; keep walking up.
+      }
+    }
+    const root = (el as HTMLElement).getRootNode?.() as ShadowRoot | null;
+    const host = root?.host as HTMLElement | null;
+    el = ((el as HTMLElement).parentElement ?? host) as HTMLElement | null;
+  }
+  return null;
+}
+
+let currentScrollable: HTMLElement | null = null;
+
+function updateHorizontalScrollState() {
+  if (!currentScrollable) {
+    window.AndroidDiffBridge?.onHorizontalScrollState?.(false, false);
+    return;
+  }
+  const scrollLeft = currentScrollable.scrollLeft;
+  const maxScroll = currentScrollable.scrollWidth - currentScrollable.clientWidth;
+  const canScrollLeft = scrollLeft > 1;
+  const canScrollRight = scrollLeft < maxScroll - 1;
+  window.AndroidDiffBridge?.onHorizontalScrollState?.(canScrollLeft, canScrollRight);
+}
+
+function installHorizontalScrollState() {
+  window.addEventListener('touchstart', (e: TouchEvent) => {
+    const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+    const target = (path.length > 0 ? path[0] : e.target) as EventTarget | null;
+    currentScrollable = findHorizontalScrollable(target);
+    updateHorizontalScrollState();
+  }, { passive: true });
+
+  // capture: true catches scroll events from inner shadow-DOM scrollers,
+  // which do not bubble past the shadow boundary by default.
+  window.addEventListener('scroll', () => {
+    updateHorizontalScrollState();
+  }, { capture: true, passive: true });
+
+  const clearScrollable = () => {
+    currentScrollable = null;
+  };
+  window.addEventListener('touchend', clearScrollable, { passive: true });
+  window.addEventListener('touchcancel', clearScrollable, { passive: true });
+}
+
+installHorizontalScrollState();
 
 let resetScrollHeaderFn: (() => void) | null = null;
 

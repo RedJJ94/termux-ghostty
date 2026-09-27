@@ -4,8 +4,11 @@ import android.annotation.SuppressLint
 import android.graphics.Color
 import android.view.MotionEvent
 import android.view.VelocityTracker
+import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -19,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -72,6 +76,9 @@ internal data class DiffSearchState(
 private class DiffBridge(
     private val onRenderFinished: () -> Unit = {}
 ) {
+    @Volatile var canScrollLeft: Boolean = false
+    @Volatile var canScrollRight: Boolean = false
+
     @JavascriptInterface
     fun onRenderComplete(fileCount: Int, hunkCount: Int) {
         onRenderFinished()
@@ -80,6 +87,12 @@ private class DiffBridge(
     @JavascriptInterface
     fun onError(message: String) {
         // Logged via JS console
+    }
+
+    @JavascriptInterface
+    fun onHorizontalScrollState(canLeft: Boolean, canRight: Boolean) {
+        canScrollLeft = canLeft
+        canScrollRight = canRight
     }
 }
 
@@ -106,6 +119,11 @@ internal fun PierreDiffView(
 
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var isPageLoaded by remember { mutableStateOf(false) }
+    // Bumped when the renderer process dies (observed live as a WebView sandbox kill
+    // during keyboard-driven resize storms). The old view can never paint again, so
+    // key a fresh AndroidView: disposal destroys the dead view and the reload effects
+    // below re-render the current diff into the new one via isPageLoaded.
+    var rendererGeneration by remember { mutableStateOf(0) }
 
     val bridge = remember(webViewRef, search.query) {
         DiffBridge {
@@ -136,14 +154,24 @@ internal fun PierreDiffView(
             .background(surfaceColor)
             .nestedScroll(rememberNestedScrollInteropConnection())
     ) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                createConfiguredWebView(ctx, bridge, assetLoader) {
-                    isPageLoaded = true
-                }.also { webViewRef = it }
-            }
-        )
+        key(rendererGeneration) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    createConfiguredWebView(
+                        ctx,
+                        bridge,
+                        assetLoader,
+                        onLoaded = { isPageLoaded = true },
+                        onRenderProcessGone = {
+                            webViewRef = null
+                            isPageLoaded = false
+                            rendererGeneration++
+                        }
+                    ).also { webViewRef = it }
+                }
+            )
+        }
     }
 }
 
@@ -297,13 +325,23 @@ private fun SyncSearch(
 
 @SuppressLint("ViewConstructor")
 @Suppress("TooManyFunctions")
-private class ScrollableDiffWebView(context: android.content.Context) : WebView(context), NestedScrollingChild3 {
+private class ScrollableDiffWebView(
+    context: android.content.Context,
+    private val diffBridge: DiffBridge? = null
+) : WebView(context), NestedScrollingChild3 {
     private val childHelper = NestedScrollingChildHelper(this).apply {
         isNestedScrollingEnabled = true
     }
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private var startX = 0
+    private var startY = 0
+    private var lastX = 0
     private var lastY = 0
+    private var isDraggingX = false
+    private var isDraggingY = false
     private val scrollConsumed = IntArray(2)
     private val scrollOffset = IntArray(2)
+    private var nestedOffsetX = 0
     private var nestedOffsetY = 0
     private var velocityTracker: VelocityTracker? = null
 
@@ -395,13 +433,15 @@ private class ScrollableDiffWebView(context: android.content.Context) : WebView(
     ): Boolean = childHelper.dispatchNestedPreFling(velocityX, velocityY)
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                parent?.requestDisallowInterceptTouchEvent(true)
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                parent?.requestDisallowInterceptTouchEvent(false)
-            }
+        // Never lock interception on DOWN/MOVE here: onTouchEvent decides per
+        // gesture direction once touch slop is exceeded. Locking here would
+        // prevent the parent HorizontalPager from ever stealing horizontal
+        // swipes for tab switches. Always release on gesture end so the next
+        // gesture starts interceptable.
+        if (event.actionMasked == MotionEvent.ACTION_UP ||
+            event.actionMasked == MotionEvent.ACTION_CANCEL
+        ) {
+            parent?.requestDisallowInterceptTouchEvent(false)
         }
         return super.dispatchTouchEvent(event)
     }
@@ -411,57 +451,135 @@ private class ScrollableDiffWebView(context: android.content.Context) : WebView(
         tracker.addMovement(event)
 
         val motionEvent = MotionEvent.obtain(event)
-        val action = event.actionMasked
-
-        if (action == MotionEvent.ACTION_DOWN) {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            nestedOffsetX = 0
             nestedOffsetY = 0
         }
-        motionEvent.offsetLocation(0f, nestedOffsetY.toFloat())
+        motionEvent.offsetLocation(nestedOffsetX.toFloat(), nestedOffsetY.toFloat())
 
-        val result: Boolean
-        when (action) {
-            MotionEvent.ACTION_DOWN -> {
-                lastY = event.rawY.toInt()
-                startNestedScroll(ViewCompat.SCROLL_AXIS_VERTICAL, ViewCompat.TYPE_TOUCH)
-                parent?.requestDisallowInterceptTouchEvent(true)
-                result = super.onTouchEvent(motionEvent)
-            }
-            MotionEvent.ACTION_MOVE -> {
-                parent?.requestDisallowInterceptTouchEvent(true)
-                val rawY = event.rawY.toInt()
-                var dy = lastY - rawY
-
-                if (dispatchNestedPreScroll(0, dy, scrollConsumed, scrollOffset, ViewCompat.TYPE_TOUCH)) {
-                    dy -= scrollConsumed[1]
-                    motionEvent.offsetLocation(0f, -scrollConsumed[1].toFloat())
-                    nestedOffsetY += scrollOffset[1]
-                }
-                lastY = rawY - scrollOffset[1]
-
-                result = super.onTouchEvent(motionEvent)
-
-                dispatchNestedScroll(
-                    0, scrollConsumed[1], 0, dy, scrollOffset, ViewCompat.TYPE_TOUCH
-                )
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                parent?.requestDisallowInterceptTouchEvent(false)
-                tracker.computeCurrentVelocity(1000)
-                val yVelocity = tracker.yVelocity
-                if (yVelocity != 0f) {
-                    dispatchNestedPreFling(0f, -yVelocity)
-                }
-                stopNestedScroll(ViewCompat.TYPE_TOUCH)
-                velocityTracker?.recycle()
-                velocityTracker = null
-                result = super.onTouchEvent(motionEvent)
-            }
-            else -> {
-                result = super.onTouchEvent(motionEvent)
-            }
+        val result = when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> handleTouchDown(event, motionEvent)
+            MotionEvent.ACTION_MOVE -> handleTouchMove(event, motionEvent)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                handleTouchUp(motionEvent, tracker)
+            else -> super.onTouchEvent(motionEvent)
         }
         motionEvent.recycle()
         return result
+    }
+
+    private fun handleTouchDown(event: MotionEvent, motionEvent: MotionEvent): Boolean {
+        startX = event.rawX.toInt()
+        startY = event.rawY.toInt()
+        lastX = startX
+        lastY = startY
+        isDraggingX = false
+        isDraggingY = false
+        startNestedScroll(
+            ViewCompat.SCROLL_AXIS_VERTICAL or ViewCompat.SCROLL_AXIS_HORIZONTAL,
+            ViewCompat.TYPE_TOUCH
+        )
+        // Do NOT disallow intercept on down: the parent pager must stay
+        // eligible to steal the gesture until direction + scrollability
+        // are known.
+        return super.onTouchEvent(motionEvent)
+    }
+
+    private fun handleTouchMove(event: MotionEvent, motionEvent: MotionEvent): Boolean {
+        val rawX = event.rawX.toInt()
+        val rawY = event.rawY.toInt()
+        lockDragDirection(rawX, rawY)
+        return when {
+            isDraggingY -> handleVerticalMove(rawX, rawY, motionEvent)
+            isDraggingX -> handleHorizontalMove(rawX, rawY, motionEvent)
+            else -> {
+                lastX = rawX
+                lastY = rawY
+                super.onTouchEvent(motionEvent)
+            }
+        }
+    }
+
+    private fun lockDragDirection(rawX: Int, rawY: Int) {
+        if (isDraggingX || isDraggingY) return
+        val totalDx = rawX - startX
+        val totalDy = rawY - startY
+        if (kotlin.math.abs(totalDy) > touchSlop &&
+            kotlin.math.abs(totalDy) > kotlin.math.abs(totalDx)
+        ) {
+            isDraggingY = true
+        } else if (kotlin.math.abs(totalDx) > touchSlop &&
+            kotlin.math.abs(totalDx) > kotlin.math.abs(totalDy)
+        ) {
+            isDraggingX = true
+        }
+    }
+
+    private fun handleVerticalMove(rawX: Int, rawY: Int, motionEvent: MotionEvent): Boolean {
+        parent?.requestDisallowInterceptTouchEvent(true)
+        var dy = lastY - rawY
+        if (dispatchNestedPreScroll(0, dy, scrollConsumed, scrollOffset, ViewCompat.TYPE_TOUCH)) {
+            dy -= scrollConsumed[1]
+            motionEvent.offsetLocation(0f, -scrollConsumed[1].toFloat())
+            nestedOffsetY += scrollOffset[1]
+        }
+        lastX = rawX - scrollOffset[0]
+        lastY = rawY - scrollOffset[1]
+        val result = super.onTouchEvent(motionEvent)
+        dispatchNestedScroll(
+            0, scrollConsumed[1], 0, dy, scrollOffset, ViewCompat.TYPE_TOUCH
+        )
+        return result
+    }
+
+    private fun handleHorizontalMove(rawX: Int, rawY: Int, motionEvent: MotionEvent): Boolean {
+        // dx > 0: finger moving left, content should scroll right.
+        // dx < 0: finger moving right, content should scroll left.
+        var dx = lastX - rawX
+        val canScrollInDirection = if (dx < 0) {
+            diffBridge?.canScrollLeft ?: false
+        } else {
+            diffBridge?.canScrollRight ?: false
+        }
+        parent?.requestDisallowInterceptTouchEvent(canScrollInDirection)
+        if (dispatchNestedPreScroll(dx, 0, scrollConsumed, scrollOffset, ViewCompat.TYPE_TOUCH)) {
+            dx -= scrollConsumed[0]
+            motionEvent.offsetLocation(-scrollConsumed[0].toFloat(), 0f)
+            nestedOffsetX += scrollOffset[0]
+        }
+        lastX = rawX - scrollOffset[0]
+        lastY = rawY - scrollOffset[1]
+        val result = super.onTouchEvent(motionEvent)
+        if (!canScrollInDirection) {
+            // At the scroll edge (or no overflow): hand the remainder to the
+            // parent pager for a tab swipe. Flows via
+            // rememberNestedScrollInteropConnection into
+            // TabbedWorkspace.pageNestedScrollConnection.
+            dispatchNestedScroll(
+                scrollConsumed[0], 0, dx, 0, scrollOffset, ViewCompat.TYPE_TOUCH
+            )
+        }
+        return result
+    }
+
+    private fun handleTouchUp(
+        motionEvent: MotionEvent,
+        tracker: VelocityTracker
+    ): Boolean {
+        parent?.requestDisallowInterceptTouchEvent(false)
+        tracker.computeCurrentVelocity(1000)
+        if (isDraggingX && tracker.xVelocity != 0f) {
+            dispatchNestedPreFling(-tracker.xVelocity, 0f)
+            dispatchNestedFling(-tracker.xVelocity, 0f, false)
+        } else if (isDraggingY && tracker.yVelocity != 0f) {
+            dispatchNestedPreFling(0f, -tracker.yVelocity)
+        }
+        isDraggingX = false
+        isDraggingY = false
+        stopNestedScroll(ViewCompat.TYPE_TOUCH)
+        velocityTracker?.recycle()
+        velocityTracker = null
+        return super.onTouchEvent(motionEvent)
     }
 }
 
@@ -490,9 +608,10 @@ private fun createConfiguredWebView(
     context: android.content.Context,
     bridge: DiffBridge,
     assetLoader: WebViewAssetLoader,
-    onLoaded: () -> Unit
+    onLoaded: () -> Unit,
+    onRenderProcessGone: () -> Unit
 ): WebView {
-    return ScrollableDiffWebView(context).apply {
+    return ScrollableDiffWebView(context, bridge).apply {
         layoutParams = ViewGroup.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
@@ -528,6 +647,22 @@ private fun createConfiguredWebView(
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 onLoaded()
+            }
+
+            override fun onRenderProcessGone(
+                view: WebView?,
+                detail: RenderProcessGoneDetail?
+            ): Boolean {
+                android.util.Log.w(
+                    "PierreDiffView",
+                    "Renderer gone (crashed=${detail?.didCrash()}); recreating WebView"
+                )
+                // Hide synchronously: the framework destroyed the view outside
+                // Compose scheduling, and a GONE view is skipped by placement, so no
+                // traversal can walk the detached holder before recreation lands.
+                view?.visibility = View.GONE
+                onRenderProcessGone()
+                return true
             }
         }
 
