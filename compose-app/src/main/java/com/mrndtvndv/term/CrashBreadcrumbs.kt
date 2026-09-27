@@ -20,14 +20,19 @@ object CrashBreadcrumbs {
     private var workspacePage: Int = -1
 
     @Volatile
+    private var workspaceCurrentPage: Int = -1
+
+    @Volatile
     private var workspaceTabCount: Int = -1
 
-    fun setWorkspace(tab: String, page: Int, tabCount: Int) {
+    fun setWorkspace(tab: String, page: Int, currentPage: Int, tabCount: Int) {
         workspaceTab = tab
         workspacePage = page
+        workspaceCurrentPage = currentPage
         workspaceTabCount = tabCount
     }
 
     fun snapshot(): String =
-        "workspaceTab=$workspaceTab workspacePage=$workspacePage workspaceTabCount=$workspaceTabCount"
+        "workspaceTab=$workspaceTab workspacePage=$workspacePage " +
+            "currentPage=$workspaceCurrentPage tabCount=$workspaceTabCount"
 }

@@ -19,24 +19,28 @@ private val TerminalProgressHeight = 4.dp
 /**
  * Renders terminal progress above, never over, terminal cells.
  *
- * The strip participates in layout only while progress is active, so the
- * terminal backend receives a resize when it appears or clears.
+ * The strip always reserves its height so progress appearing or clearing never
+ * resizes the terminal column. Resizing the adjacent terminal surface while the
+ * workspace HorizontalPager is placing pages replaces layout nodes mid-placement
+ * ("LayoutNode should be attached to an owner" during dispatchDraw); keeping the
+ * layout stable reduces progress updates to inner draw changes only.
  */
 @Composable
 fun TerminalProgressStrip(
     progress: TerminalProgress?,
     modifier: Modifier = Modifier,
 ) {
-    progress ?: return
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(TerminalProgressHeight),
     ) {
-        TerminalProgressIndicator(
-            progress = progress,
-            modifier = Modifier.fillMaxSize(),
-        )
+        if (progress != null) {
+            TerminalProgressIndicator(
+                progress = progress,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
 }
 

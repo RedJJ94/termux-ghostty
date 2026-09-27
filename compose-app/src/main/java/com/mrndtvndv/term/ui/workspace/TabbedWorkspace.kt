@@ -145,7 +145,12 @@ fun TabbedWorkspace(
     // captured by the system back gesture (predictive back, API 29+) instead of the
     // pager — e.g. SFTP→Git becomes a back press that navigates to the Terminal tab.
     // Hand the edge zone to the pager so those swipes always switch pages.
-    val excludeFromSystemGesture = pagerState.currentPage != 0
+    // NOTE: keyed on settledPage, not currentPage. currentPage flips mid-swipe while
+    // the pager is still placing pages; toggling systemGestureExclusion then replaces
+    // the pager's LayoutNode mid-placement ("LayoutNode should be attached to an
+    // owner" during dispatchDraw). settledPage only flips after the scroll settles,
+    // when the pager is idle.
+    val excludeFromSystemGesture = pagerState.settledPage != 0
 
     // pageNestedScrollConnection is @Composable in foundation 1.11+, so it must be
     // called from the composable body, not inside remember {} or the object expression.
@@ -153,9 +158,12 @@ fun TabbedWorkspace(
         pagerState,
         Orientation.Horizontal
     )
-    val pageNestedScrollConnection = remember(pagerState) {
+    // Include the default connection as a remember key: it is a @Composable return
+    // value that can change across recompositions. Capturing only pagerState would
+    // pin a stale delegate that forwards flings to detached scroll state mid-layout.
+    val pageNestedScrollConnection = remember(pagerState, defaultPagerNestedScrollConnection) {
+        val defaultConn = defaultPagerNestedScrollConnection
         object : NestedScrollConnection {
-            private val defaultConn = defaultPagerNestedScrollConnection
 
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (kotlin.math.abs(available.x) > kotlin.math.abs(available.y) * 1.5f) {
@@ -211,10 +219,11 @@ fun TabbedWorkspace(
 
     // Sync external activeTab when pager is swiped by the user.
     // Also records a breadcrumb for crash reports (see CrashBreadcrumbs).
-    LaunchedEffect(pagerState.settledPage, activeTabs) {
+    LaunchedEffect(pagerState.settledPage, pagerState.currentPage, activeTabs) {
         CrashBreadcrumbs.setWorkspace(
             tab = activeTab.title,
             page = pagerState.settledPage,
+            currentPage = pagerState.currentPage,
             tabCount = activeTabs.size,
         )
         val tab = activeTabs.getOrNull(pagerState.settledPage) ?: WorkspaceTab.Terminal
@@ -245,8 +254,12 @@ fun TabbedWorkspace(
                                 if (tab == WorkspaceTab.Sftp || tab == WorkspaceTab.Review) {
                                     onRefreshWorkspace()
                                 }
-                                coroutineScope.launch {
-                                    pagerState.animateScrollToPage(index)
+                                // Skip no-op animations: re-animating to the current page
+                                // replaces pager nodes mid-layout for no visible effect.
+                                if (pagerState.currentPage != index) {
+                                    coroutineScope.launch {
+                                        pagerState.animateScrollToPage(index)
+                                    }
                                 }
                             },
                             selectedContentColor = MaterialTheme.colorScheme.primary,
@@ -268,7 +281,11 @@ fun TabbedWorkspace(
             state = pagerState,
             flingBehavior = flingBehavior,
             pageNestedScrollConnection = pageNestedScrollConnection,
-            key = { index -> activeTabs.getOrNull(index)?.title ?: index.toString() },
+            // Stable identity per tab (singleton objects), not per index. Title strings
+            // are 1:1 with tabs today, but object keys survive list-instance changes
+            // without recreating moved pages (e.g. SFTP keeps its node when Git is
+            // absent, instead of being torn down and rebuilt mid-layout).
+            key = { index -> activeTabs.getOrNull(index) ?: index },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
