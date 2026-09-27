@@ -1649,6 +1649,18 @@ fun DiffHeader(
     HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
 }
 
+/**
+ * True only for git's binary markers (`Binary files ... differ`, `GIT binary patch`)
+ * emitted as their own diff lines. A plain substring check false-positives on
+ * text diffs whose added lines merely mention those phrases (e.g. the
+ * diff-viewer's own source containing `/^Binary files .+ differ/`).
+ */
+internal fun isBinaryDiff(rawDiff: String): Boolean =
+    rawDiff.lineSequence().any { line ->
+        (line.startsWith("Binary files ") && line.contains(" differ")) ||
+            line.startsWith("GIT binary patch")
+    }
+
 @Suppress("LongParameterList", "LongMethod")
 @Composable
 internal fun DiffViewer(
@@ -1711,7 +1723,7 @@ internal fun DiffViewer(
                 is DiffContentState.Error -> EmptyDiffMessage(content.message)
                 is DiffContentState.Ready -> {
                     val rawDiff = content.rawDiff
-                    if (rawDiff.contains("Binary files ") && rawDiff.contains(" differ")) {
+                    if (isBinaryDiff(rawDiff)) {
                         EmptyDiffMessage("Binary file changed (diff not available).")
                     } else if (rawDiff.isNotBlank()) {
                         val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
