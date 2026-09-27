@@ -308,6 +308,10 @@ private fun WorkspaceListItem(
  * Brand marks are vendored from Herdr's Apache-2.0 repository:
  * https://github.com/herdrdev/herdr/tree/master/website/assets/agent-icons
  * The Pi mark is sourced from https://pi.dev/logo-on-dark.svg.
+ * The PiG (Pi in Go) mark is adapted from the PiG pixel pig logo
+ * (https://pi-in-go.dev/pig-pixel-green-display.png, press kit
+ * https://pi-in-go.dev/press-kit/) and redrawn as a monochrome silhouette
+ * for status tinting.
  * The omp (Oh My Pi) mark is sourced from:
  * https://github.com/can1357/oh-my-pi/blob/main/assets/icon.svg
  * The Prime Agent mark is sourced from:
@@ -346,6 +350,7 @@ private fun agentIconResource(agent: String?): Int? = when (agent?.lowercase(Loc
     "omp" -> R.drawable.agent_omp
     "opencode" -> R.drawable.agent_opencode
     "pi" -> R.drawable.agent_pi
+    "pig" -> R.drawable.agent_pig
     "prime", "prime-agent", "primeintellect" -> R.drawable.agent_prime
     "qoder", "qodercli" -> R.drawable.agent_qoder
     else -> null
