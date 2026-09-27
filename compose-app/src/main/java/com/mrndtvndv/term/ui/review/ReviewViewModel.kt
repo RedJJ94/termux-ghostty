@@ -2,6 +2,7 @@ package com.mrndtvndv.term.ui.review
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,7 +70,8 @@ internal data class DiffSectionView(
 @Suppress("LargeClass", "TooManyFunctions")
 class ReviewViewModel(
     private val execCommand: suspend (String) -> String,
-    private val workspaceDir: StateFlow<String>
+    private val workspaceDir: StateFlow<String>,
+    private val diffDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : ViewModel() {
 
     private data class BranchSyncStatus(
@@ -400,8 +402,7 @@ class ReviewViewModel(
             val dir = workspaceDir.value
             try {
                 val repoRoot = getRepoRoot(execCommand, dir)
-                val command = "export PATH=\$PATH:/opt/homebrew/bin:/usr/local/bin; cd \"$repoRoot\" && " +
-                    "git show --stat -p \"${commit.hash}\""
+                val command = buildCommitDiffCommand(repoRoot, commit.hash)
                 val diffOutput = execCommand(command)
                 _diffContent.value = buildDiffContent(diffOutput)
             } catch (e: Exception) {
@@ -419,20 +420,7 @@ class ReviewViewModel(
             val contextFlag = if (_isFullFileMode.value) "-U999999 " else ""
             try {
                 val repoRoot = getRepoRoot(execCommand, dir)
-                val command = when {
-                    file.status == "??" -> {
-                        "export PATH=\$PATH:/opt/homebrew/bin:/usr/local/bin; cd \"$repoRoot\" && " +
-                            "git diff --no-index ${contextFlag}-- /dev/null \"${file.path}\""
-                    }
-                    file.isStaged -> {
-                        "export PATH=\$PATH:/opt/homebrew/bin:/usr/local/bin; cd \"$repoRoot\" && " +
-                            "git diff --cached ${contextFlag}-- \"${file.path}\""
-                    }
-                    else -> {
-                        "export PATH=\$PATH:/opt/homebrew/bin:/usr/local/bin; cd \"$repoRoot\" && " +
-                            "git diff ${contextFlag}-- \"${file.path}\""
-                    }
-                }
+                val command = buildDiffCommand(repoRoot, file, contextFlag)
                 val diffOutput = execCommand(command)
                 _diffContent.value = buildDiffContent(diffOutput)
             } catch (e: Exception) {
@@ -448,7 +436,7 @@ class ReviewViewModel(
      * never touch the main thread.
      */
     private suspend fun buildDiffContent(diffOutput: String): DiffContentState.Ready =
-        withContext(Dispatchers.Default) {
+        withContext(diffDispatcher) {
             DiffContentState.Ready(
                 sections = parseFileDiffSections(diffOutput).map { section ->
                     DiffSectionView(
@@ -821,6 +809,46 @@ class ReviewViewModel(
             } finally {
                 _isSyncInProgress.value = false
             }
+        }
+    }
+}
+
+internal fun buildCommitDiffCommand(repoRoot: String, commitHash: String): String {
+    val quotedRepo = shellQuote(repoRoot)
+    val quotedHash = shellQuote(commitHash)
+    return "export PATH=\$PATH:/opt/homebrew/bin:/usr/local/bin; cd $quotedRepo && " +
+        "git show --stat -p $quotedHash"
+}
+
+internal fun buildDiffCommand(
+    repoRoot: String,
+    file: GitFileStatus,
+    contextFlag: String = ""
+): String {
+    val quotedRepo = shellQuote(repoRoot)
+    val quotedPath = shellQuote(file.path)
+    val pathEnv = "export PATH=\$PATH:/opt/homebrew/bin:/usr/local/bin; "
+    return when {
+        file.status == "??" -> {
+            "$pathEnv cd $quotedRepo && " +
+                "if [ ! -e $quotedPath ]; then " +
+                "echo 'File not found' >&2; exit 1; " +
+                "elif [ -d $quotedPath ]; then " +
+                "EMPTY_TMP=\$(mktemp -d) && " +
+                "git diff --no-index ${contextFlag}-- \"\$EMPTY_TMP\" $quotedPath; " +
+                "diff_status=\$?; " +
+                "rmdir \"\$EMPTY_TMP\" 2>/dev/null; " +
+                "test \"\$diff_status\" -le 1; " +
+                "else " +
+                "git diff --no-index ${contextFlag}-- /dev/null $quotedPath; " +
+                "test \"\$?\" -le 1; " +
+                "fi"
+        }
+        file.isStaged -> {
+            "$pathEnv cd $quotedRepo && git diff --cached ${contextFlag}-- $quotedPath"
+        }
+        else -> {
+            "$pathEnv cd $quotedRepo && git diff ${contextFlag}-- $quotedPath"
         }
     }
 }
