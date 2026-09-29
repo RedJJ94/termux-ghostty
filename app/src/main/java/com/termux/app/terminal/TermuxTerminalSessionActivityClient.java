@@ -50,6 +50,9 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
     private static final int MAX_SESSIONS = TermuxConstants.TERMUX_APP_MAX_TERMINAL_SESSIONS;
 
+    /** Drawer scroll delay; the target index is resolved when the scroll runs. */
+    private static final long SESSION_LIST_SCROLL_DELAY_MILLIS = 1000;
+
     private SoundPool mBellSoundPool;
 
     private int mBellSoundId;
@@ -127,6 +130,13 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
         if (!mActivity.isVisible()) return;
 
         if (mActivity.getCurrentSession() == changedSession) mActivity.getTerminalView().onScreenUpdated();
+    }
+
+    @Override
+    public void onTerminalReady(@NonNull TerminalSession readySession) {
+        // The view client is created after this client, so resolve it lazily.
+        TermuxTerminalViewClient viewClient = mActivity.getTermuxTerminalViewClient();
+        if (viewClient != null) viewClient.onTerminalReady(readySession);
     }
 
     @Override
@@ -471,30 +481,66 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
     }
 
     public void removeFinishedSession(TerminalSession finishedSession) {
+        if (finishedSession == null) return;
+
+        // Capture host state before disposal: only the displayed session may hand
+        // focus to a neighbour. A background session finishing must be invisible.
+        boolean wasCurrentSession = mActivity.getCurrentSession() == finishedSession;
+
         TerminalSessionBackend backend = mSessionBackends.remove(finishedSession.mHandle);
         if (backend != null) backend.release();
-        // Return pressed with finished session - remove it.
+
         TermuxService service = mActivity.getTermuxService();
         if (service == null) {
+            if (wasCurrentSession) clearCurrentSession();
             finishedSession.close();
             return;
         }
 
-        int index = service.removeTermuxSession(finishedSession);
+        int removedIndex = service.removeTermuxSession(finishedSession);
         finishedSession.close();
+
+        if (service.getIndexOfSession(finishedSession) >= 0) {
+            // The service kept the session (see docs/fork/issues/004). Leave the
+            // host untouched instead of pointing it at an arbitrary neighbour.
+            Logger.logWarn(LOG_TAG, "Session " + finishedSession.mHandle + " is still owned by the service after removal");
+            return;
+        }
+
+        if (!wasCurrentSession) return;
 
         int size = service.getTermuxSessionsSize();
         if (size == 0) {
             // There are no sessions to show, so finish the activity.
             mActivity.finishActivityIfNotFinishing();
-        } else {
-            if (index >= size) {
-                index = size - 1;
-            }
-            TermuxSession termuxSession = service.getTermuxSession(index);
-            if (termuxSession != null)
-                setCurrentSession(termuxSession.getTerminalSession());
+            return;
         }
+
+        TermuxSession termuxSession = service.getTermuxSession(Math.min(removedIndex, size - 1));
+        if (termuxSession != null) {
+            setCurrentSession(termuxSession.getTerminalSession());
+        } else {
+            clearCurrentSession();
+        }
+    }
+
+    /** Releases every session backend this host owns. Call when the activity is destroyed. */
+    public void onDestroy() {
+        for (TerminalSessionBackend backend : mSessionBackends.values()) {
+            backend.release();
+        }
+        mSessionBackends.clear();
+        if (mActivity.getTerminalView() != null) mActivity.getTerminalView().setBackend(null);
+        mActivity.setCurrentSession(null);
+    }
+
+    /** Drops the displayed session and its backend instead of leaving a removed one installed. */
+    private void clearCurrentSession() {
+        if (mActivity.getTerminalView() != null) mActivity.getTerminalView().setBackend(null);
+        mActivity.setCurrentSession(null);
+        updateBackgroundColor();
+        mActivity.onCurrentSessionChanged();
+        termuxSessionListNotifyUpdated();
     }
 
     public void termuxSessionListNotifyUpdated() {
@@ -512,8 +558,17 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
         if (termuxSessionsListView == null) return;
 
         termuxSessionsListView.setItemChecked(indexOfSession, true);
-        // Delay is necessary otherwise sometimes scroll to newly added session does not happen
-        termuxSessionsListView.postDelayed(() -> termuxSessionsListView.smoothScrollToPosition(indexOfSession), 1000);
+        // Delay is necessary otherwise sometimes scroll to newly added session does not happen.
+        // The index is re-resolved when the scroll runs: sessions may be added or
+        // removed during the delay, and the adapter is backed by the live session list.
+        termuxSessionsListView.postDelayed(() -> {
+            TermuxService currentService = mActivity.getTermuxService();
+            if (currentService == null) return;
+            int currentIndex = currentService.getIndexOfSession(session);
+            if (currentIndex < 0) return;
+            termuxSessionsListView.setItemChecked(currentIndex, true);
+            termuxSessionsListView.smoothScrollToPosition(currentIndex);
+        }, SESSION_LIST_SCROLL_DELAY_MILLIS);
     }
 
 

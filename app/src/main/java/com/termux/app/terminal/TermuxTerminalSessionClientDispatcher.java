@@ -74,6 +74,12 @@ public final class TermuxTerminalSessionClientDispatcher extends TermuxTerminalS
     }
 
     @Override
+    public void onTerminalReady(@NonNull TerminalSession readySession) {
+        for (TerminalSessionClient client : getRegisteredClientsSnapshot())
+            client.onTerminalReady(readySession);
+    }
+
+    @Override
     public void onTitleChanged(@NonNull TerminalSession updatedSession) {
         mService.onTerminalSessionTitleChanged(updatedSession);
         for (TerminalSessionClient client : getRegisteredClientsSnapshot())

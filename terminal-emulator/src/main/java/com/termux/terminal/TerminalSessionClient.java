@@ -12,6 +12,15 @@ public interface TerminalSessionClient {
 
     void onTextChanged(@NonNull TerminalSession changedSession);
 
+    /**
+     * Called once the terminal backend of {@code readySession} became active.
+     *
+     * <p>Backend initialisation is lazy: it happens on the first size pass from a
+     * host, after that host's {@code onResume()}. Hosts use this to start work that
+     * needs a live terminal, such as cursor blinking.
+     */
+    void onTerminalReady(@NonNull TerminalSession readySession);
+
     void onFrameAvailable(@NonNull TerminalSession changedSession);
 
     void onTitleChanged(@NonNull TerminalSession changedSession);

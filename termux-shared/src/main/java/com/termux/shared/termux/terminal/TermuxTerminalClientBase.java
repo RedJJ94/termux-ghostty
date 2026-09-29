@@ -4,6 +4,7 @@ import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import com.termux.shared.logger.Logger;
@@ -109,7 +110,14 @@ public class TermuxTerminalClientBase {
     public void onSoftKeyboardVisibilityChanged(boolean visible) {
     }
 
-    public void onTerminalReady() {
+    /**
+     * Called once the terminal backend of {@code readySession} became active.
+     *
+     * <p>Backend initialisation is lazy and happens on the first size pass from a
+     * host, which is after that host's {@code onResume()}. Hosts use this to start
+     * work that needs a live terminal, such as cursor blinking.
+     */
+    public void onTerminalReady(@NonNull TerminalSession readySession) {
     }
 
     public void logError(String tag, String message) {

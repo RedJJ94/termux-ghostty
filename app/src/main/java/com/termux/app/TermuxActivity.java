@@ -402,6 +402,12 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
         Logger.logDebug(LOG_TAG, "onDestroy");
 
+        // Release every session backend this host owns before dropping the service
+        // reference. Otherwise a debounced resize from this destroyed activity can
+        // still resize a session that a recreated activity now owns.
+        if (mTermuxTerminalSessionActivityClient != null)
+            mTermuxTerminalSessionActivityClient.onDestroy();
+
         if (mIsInvalidState) return;
 
         if (mTermuxService != null) {
@@ -1099,7 +1105,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
 
 
     public void termuxSessionListNotifyUpdated() {
-        mTermuxSessionListViewController.notifyDataSetChanged();
+        if (mTermuxSessionListViewController != null) mTermuxSessionListViewController.notifyDataSetChanged();
         if (mSessionTabStripController != null) {
             mSessionTabStripController.notifyDataSetChanged();
         }
@@ -1137,6 +1143,8 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     public void setCurrentSession(@Nullable TerminalSession session) {
         mCurrentSession = session;
         if (mTerminalCursorBlinker != null) mTerminalCursorBlinker.setSession(session);
+        // setSession() stopped the previous blinker, so re-arm it for the new session.
+        if (mTermuxTerminalViewClient != null) mTermuxTerminalViewClient.onCurrentSessionDisplayed();
     }
 
     public void setTerminalCursorBlinkerState(boolean start, boolean startOnlyIfCursorEnabled) {

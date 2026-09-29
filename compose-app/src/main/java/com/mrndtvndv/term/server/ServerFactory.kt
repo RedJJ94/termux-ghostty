@@ -113,6 +113,10 @@ class ServerFactory(
                 sessionClient.onFrameAvailable(changedSession)
             }
 
+            override fun onTerminalReady(readySession: TerminalSession) {
+                sessionClient.onTerminalReady(readySession)
+            }
+
             override fun onTitleChanged(updatedSession: TerminalSession) {
                 sessionClient.onTitleChanged(updatedSession)
             }

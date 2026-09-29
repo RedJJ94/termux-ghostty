@@ -47,6 +47,9 @@ public class SessionTabStripController {
     /** Whether the dark theme is active (cached on rebuild). */
     private boolean mIsDark;
 
+    /** Tab order captured at build time so child index arithmetic cannot invert. */
+    private boolean mRightAligned;
+
     private static final int TAB_PADDING_HORIZONTAL_DP = 12;
     private static final int TAB_PADDING_VERTICAL_DP = 6;
     private static final int TAB_TEXT_SIZE_SP = 13;
@@ -91,8 +94,8 @@ public class SessionTabStripController {
         resolveColors();
         TerminalSession currentSession = mActivity.getCurrentSession();
 
-        boolean isRightAligned = TermuxPropertyConstants.IVALUE_SESSION_TAB_BAR_ALIGN_RIGHT.equals(
-            mActivity.getProperties().getSessionTabBarAlign());
+        boolean isRightAligned = isRightAligned();
+        mRightAligned = isRightAligned;
 
         List<TermuxSession> sessions = service.getTermuxSessions();
         if (isRightAligned) {
@@ -122,17 +125,10 @@ public class SessionTabStripController {
         // "+" button always at the end
         mTabStrip.addView(createAddTabView());
 
-        // If no session was marked current but sessions exist, default to first
-        if (mSelectedIndex < 0 && !sessions.isEmpty()) {
-            mSelectedIndex = 0;
-            int childIndex = getChildIndexForSessionIndex(0, sessions.size());
-            View firstTab = mTabStrip.getChildAt(childIndex);
-            if (firstTab instanceof TextView) {
-                styleTabSelected((TextView) firstTab);
-            }
-        }
-
-        scrollToTab(mSelectedIndex);
+        // The strip never invents a selection the host did not make: if the displayed
+        // session is not in the service list, no tab is highlighted. The host owns
+        // resolving which session to display.
+        if (mSelectedIndex >= 0) scrollToTab(mSelectedIndex);
         updateBackgroundColor();
     }
 
@@ -141,14 +137,11 @@ public class SessionTabStripController {
      * Call this when the current session changes without structural changes.
      */
     public void onSessionChanged() {
-        TerminalSession currentSession = mActivity.getCurrentSession();
-        if (currentSession == null) return;
-
         TermuxService service = mActivity.getTermuxService();
         if (service == null) return;
 
-        int newIndex = service.getIndexOfSession(currentSession);
-        if (newIndex < 0) return;
+        TerminalSession currentSession = mActivity.getCurrentSession();
+        int newIndex = currentSession == null ? -1 : service.getIndexOfSession(currentSession);
 
         // If tabs aren't built yet or out of sync, do full rebuild
         // Account for "+" button: tabs count should be sessions + 1
@@ -183,7 +176,7 @@ public class SessionTabStripController {
             }
         }
 
-        scrollToTab(mSelectedIndex);
+        if (mSelectedIndex >= 0) scrollToTab(mSelectedIndex);
         updateBackgroundColor();
     }
 
@@ -240,7 +233,7 @@ public class SessionTabStripController {
 
         // Long press for context menu
         tab.setOnLongClickListener(v -> {
-            showSessionContextMenu(session, index);
+            showSessionContextMenu(session);
             return true;
         });
 
@@ -299,7 +292,7 @@ public class SessionTabStripController {
         return tab;
     }
 
-    private void showSessionContextMenu(TerminalSession session, int index) {
+    private void showSessionContextMenu(TerminalSession session) {
         List<CharSequence> actionLabels = new ArrayList<>();
         List<Runnable> actionHandlers = new ArrayList<>();
 
@@ -322,13 +315,12 @@ public class SessionTabStripController {
     }
 
     private int getChildIndexForSessionIndex(int sessionIndex, int sessionsSize) {
-        boolean isRightAligned = TermuxPropertyConstants.IVALUE_SESSION_TAB_BAR_ALIGN_RIGHT.equals(
+        return mRightAligned ? sessionsSize - 1 - sessionIndex : sessionIndex;
+    }
+
+    private boolean isRightAligned() {
+        return TermuxPropertyConstants.IVALUE_SESSION_TAB_BAR_ALIGN_RIGHT.equals(
             mActivity.getProperties().getSessionTabBarAlign());
-        if (isRightAligned) {
-            return sessionsSize - 1 - sessionIndex;
-        } else {
-            return sessionIndex;
-        }
     }
 
     private void scrollToTab(int sessionIndex) {
@@ -355,10 +347,10 @@ public class SessionTabStripController {
      */
     public void updateBackgroundColor() {
         TerminalSession session = mActivity.getCurrentSession();
-        if (session != null) {
+        if (session != null && session.hasActiveTerminalBackend()) {
             mScrollView.setBackgroundColor(session.getBackgroundColor());
         } else {
-            // No session yet - use global color scheme directly
+            // No live session - use global color scheme directly
             mScrollView.setBackgroundColor(TerminalColors.COLOR_SCHEME.mDefaultColors[TextStyle.COLOR_INDEX_BACKGROUND]);
         }
     }

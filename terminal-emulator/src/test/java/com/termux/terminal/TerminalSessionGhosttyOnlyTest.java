@@ -152,6 +152,11 @@ public class TerminalSessionGhosttyOnlyTest {
         }
 
         @Override
+        public void onTerminalReady(TerminalSession readySession) {
+            events.add("ready");
+        }
+
+        @Override
         public void onFrameAvailable(TerminalSession changedSession) {
         }
 

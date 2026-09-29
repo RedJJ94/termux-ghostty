@@ -18,6 +18,8 @@ import android.widget.EditText;
 import android.widget.ListView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+
 import com.termux.R;
 import com.termux.app.TermuxActivity;
 import com.termux.shared.file.FileUtils;
@@ -114,16 +116,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
         // Show the soft keyboard if required
         setSoftKeyboardState(true, mActivity.isActivityRecreated());
 
-        mTerminalCursorBlinkerStateAlreadySet = false;
-
-        TerminalSession currentSession = mActivity.getCurrentSession();
-        if (currentSession != null && currentSession.hasActiveTerminalBackend()) {
-            // Start terminal cursor blinking if enabled.
-            // If the session is already ready, start now. Otherwise wait for onTerminalReady(),
-            // which may arrive after the final size pass once the view can initialize the backend.
-            setTerminalCursorBlinkerState(true);
-            mTerminalCursorBlinkerStateAlreadySet = true;
-        }
+        onCurrentSessionDisplayed();
     }
 
     /**
@@ -153,17 +146,42 @@ public class TermuxTerminalViewClient extends TermuxTerminalClientBase {
     }
 
     /**
+     * Should be called when a different session becomes the displayed one.
+     *
+     * <p>Switching sessions stops the previous blinker, so blinking has to be re-armed
+     * for the newly displayed session instead of waiting for the next resume.
+     */
+    public void onCurrentSessionDisplayed() {
+        mTerminalCursorBlinkerStateAlreadySet = false;
+        startTerminalCursorBlinkerIfReady();
+    }
+
+    /**
      * Should be called when the attached terminal becomes ready for use.
      */
     @Override
-    public void onTerminalReady() {
-        if (!mTerminalCursorBlinkerStateAlreadySet) {
-            // Wait for the first attached session to finish its final size pass before starting
-            // the blinker. Otherwise the first session may miss blink startup after activity
-            // recreation when the view was still measuring.
-            setTerminalCursorBlinkerState(true);
-            mTerminalCursorBlinkerStateAlreadySet = true;
-        }
+    public void onTerminalReady(@NonNull TerminalSession readySession) {
+        if (mTerminalCursorBlinkerStateAlreadySet) return;
+        if (mActivity.getCurrentSession() != readySession) return;
+        startTerminalCursorBlinkerIfReady();
+    }
+
+    /**
+     * Starts cursor blinking once the displayed session has a live backend.
+     *
+     * <p>Backend initialization is lazy and happens on the first canvas size pass,
+     * which is after onResume(). When the backend is not up yet the caller is
+     * onTerminalReady(), which arrives once the size pass initialized it.
+     */
+    private void startTerminalCursorBlinkerIfReady() {
+        if (mTerminalCursorBlinkerStateAlreadySet) return;
+        if (!mActivity.isVisible()) return;
+
+        TerminalSession currentSession = mActivity.getCurrentSession();
+        if (currentSession == null || !currentSession.hasActiveTerminalBackend()) return;
+
+        setTerminalCursorBlinkerState(true);
+        mTerminalCursorBlinkerStateAlreadySet = true;
     }
 
 

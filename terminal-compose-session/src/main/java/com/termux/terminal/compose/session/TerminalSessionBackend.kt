@@ -58,6 +58,10 @@ class TerminalSessionBackend @JvmOverloads constructor(
         resizeCoalescer.setDebounceMillis(millis)
     }
 
+    /** Whether a debounced resize is queued and not yet applied. */
+    internal val hasPendingResize: Boolean
+        get() = pendingResize != null
+
     fun captureStateSnapshot(): CompletableFuture<ByteArray> {
         if (!released) return session.captureStateSnapshot()
         return failedFuture("Terminal backend is released")
@@ -83,6 +87,11 @@ class TerminalSessionBackend @JvmOverloads constructor(
     override fun detach() {
         session.removeFrameCallback(frameCallback)
         listener = null
+        // A detached host must not resize the session: a debounced resize queued by
+        // the outgoing canvas would race the resize of the host that owns it now.
+        // A re-attached controller always resubmits, since its measurement is fresh.
+        resizeHandler.removeCallbacks(resizeRunnable)
+        pendingResize = null
     }
 
     override fun refresh() {

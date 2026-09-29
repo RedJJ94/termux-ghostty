@@ -388,6 +388,7 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
                 mGhosttySessionWorker.sendTerminalFocus(mGhosttyFocused);
             }
             GhosttyLog.info("Ghostty backend selected for session " + mHandle);
+            if (mClient != null) mClient.onTerminalReady(this);
         } catch (Throwable error) {
             if (mGhosttyTerminalContent != null) {
                 try {
