@@ -40,7 +40,8 @@ class TerminalSessionBackend @JvmOverloads constructor(
     private val frameStore = TerminalSessionFrameStore()
     private val commandAdapter = TerminalSessionCommandAdapter(
         session = session,
-        updateTopRow = ::updateTopRow
+        updateTopRow = ::updateTopRow,
+        toggleAutoScroll = { autoScrollDisabled = !autoScrollDisabled }
     )
     private val resizeHandler = Handler(Looper.getMainLooper())
     private val resizeRunnable = Runnable { applyPendingResize() }
@@ -48,10 +49,19 @@ class TerminalSessionBackend @JvmOverloads constructor(
     private val resizeCoalescer =
         ResizeCoalescer(resizeDebounceMillis) { SystemClock.uptimeMillis() }
     private var listener: TerminalBackendListener? = null
+
+    /**
+     * This host's viewport. Owned here, not on the session: one session can be hosted by more
+     * than one canvas at a time and each viewport scrolls independently.
+     */
     private var topRow = 0
+    private var autoScrollDisabled = false
     private var fullRefreshRequestedForSequence = -1L
     private var released = false
     private val frameCallback = TerminalSession.FrameCallback { refresh() }
+
+    /** Whether [topRow] has been pushed to the session for this host. */
+    private var publishedTopRow: Int? = null
 
     fun setResizeDebounceMillis(millis: Long) {
         if (released) return
@@ -185,27 +195,35 @@ class TerminalSessionBackend @JvmOverloads constructor(
         session.updateSize(size.columns, size.rows, size.cellWidthPx, size.cellHeightPx)
         resizeCoalescer.onApplied()
         topRow = 0
+        // Force the next applied frame to republish this host's viewport after the reflow.
+        publishedTopRow = null
     }
 
     private fun synchronizeViewport(frameDelta: FrameDelta) {
-        val transcriptRows = session.activeTranscriptRows
         topRow = resolveTopRow(
             previousTopRow = topRow,
             viewportChanged = frameDelta.reasonFlags and FrameDelta.REASON_VIEWPORT_SCROLL != 0,
             frameTopRow = frameDelta.topRow,
-            autoScrollDisabled = session.isAutoScrollDisabled,
-            transcriptRows = transcriptRows,
+            autoScrollDisabled = autoScrollDisabled,
+            transcriptRows = session.activeTranscriptRows,
             rowShift = session.scrollCounter
         )
         session.clearScrollCounter()
-        session.setGhosttyTopRow(topRow)
+        // The session holds a single worker-owned viewport, so only push this host's viewport
+        // when it actually moved. Pushing on every applied frame would let a second host on the
+        // same session drag this host's viewport around on each publication.
+        if (publishedTopRow != topRow) {
+            publishedTopRow = topRow
+            session.setGhosttyTopRow(topRow)
+        }
     }
 
     private fun updateTopRow(requestedTopRow: Int) {
         val nextTopRow = requestedTopRow.coerceIn(-session.activeTranscriptRows, 0)
         if (nextTopRow == topRow) return
         topRow = nextTopRow
-        session.setGhosttyTopRow(topRow)
+        publishedTopRow = nextTopRow
+        session.setGhosttyTopRow(nextTopRow)
     }
 
     private fun requestFullRefresh(frameSequence: Long) {

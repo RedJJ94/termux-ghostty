@@ -64,6 +64,14 @@ sealed interface TerminalCommand {
 
     /** Jumps the viewport to the given absolute top row. */
     data class SetViewportTopRow(val topRow: Int) : TerminalCommand
+
+    /**
+     * Toggles whether the viewport follows new output.
+     *
+     * Disabling is per viewport, not per session: a session can be hosted by more than one canvas
+     * at the same time, and each viewport decides for itself whether to follow output.
+     */
+    data object ToggleAutoScroll : TerminalCommand
 }
 
 /**

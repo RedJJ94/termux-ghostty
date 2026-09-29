@@ -102,8 +102,7 @@ public class TermuxTerminalExtraKeys extends TerminalExtraKeys {
             if(mTermuxTerminalSessionActivityClient != null)
                 mTermuxTerminalSessionActivityClient.onPasteTextFromClipboard(null);
         }  else if ("SCROLL".equals(key)) {
-            if (mTermuxTerminalViewClient.getActivity().getCurrentSession() != null)
-                mTermuxTerminalViewClient.getActivity().getCurrentSession().toggleAutoScrollDisabled();
+            mActivity.getTerminalView().toggleAutoScrollDisabled();
         } else {
             super.onTerminalExtraKeyButtonClick(view, key, ctrlDown, altDown, shiftDown, fnDown);
         }

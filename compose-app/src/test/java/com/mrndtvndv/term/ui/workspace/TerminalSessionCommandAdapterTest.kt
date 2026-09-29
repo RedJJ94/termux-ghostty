@@ -137,10 +137,12 @@ class TerminalSessionCommandAdapterTest {
 
     private fun adapterFor(
         onViewportUpdate: () -> Unit = {},
-        onScrollEvent: (GhosttyScrollEvent) -> Unit = {}
+        onScrollEvent: (GhosttyScrollEvent) -> Unit = {},
+        onAutoScrollToggle: () -> Unit = {}
     ) = TerminalSessionCommandAdapter(
         session = TerminalSession(4096, null, NoOpIo()),
         updateTopRow = { onViewportUpdate() },
+        toggleAutoScroll = onAutoScrollToggle,
         submitScrollEvent = onScrollEvent
     )
 

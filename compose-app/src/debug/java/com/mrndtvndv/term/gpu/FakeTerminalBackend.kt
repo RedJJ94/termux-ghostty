@@ -154,6 +154,7 @@ internal class FakeTerminalBackend(
                 viewportTopRow = command.topRow.coerceIn(0, maxTopRow())
                 publishFrame(notify = true)
             }
+            is TerminalCommand.ToggleAutoScroll -> Unit
         }
         return TerminalCommandResult.Success
     }

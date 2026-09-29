@@ -324,6 +324,11 @@ class TerminalComposeView @JvmOverloads constructor(
         backendState?.submit(TerminalCommand.SetViewportTopRow(topRow))
     }
 
+    /** Toggles whether this viewport follows new output. */
+    fun toggleAutoScrollDisabled() {
+        backendState?.submit(TerminalCommand.ToggleAutoScroll)
+    }
+
     /** Returns the URL under a View-host pointer event using frame-time geometry. */
     fun getVisibleLinkUrl(event: MotionEvent): String? {
         val backend = backendState ?: return null

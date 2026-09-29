@@ -119,7 +119,6 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
     private final String[] mEnv;
     private final Integer mTranscriptRows;
 
-    private boolean mAutoScrollDisabled;
     final AtomicInteger mScrollCounter = new AtomicInteger(0);
     volatile int mLastKnownGhosttyTranscriptRows;
     volatile int mLastKnownActiveRows;
@@ -980,16 +979,6 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
             Logger.logStackTraceWithMessage(mClient, LOG_TAG, "Error getting current directory", e);
         }
         return null;
-    }
-
-    public boolean isAutoScrollDisabled() {
-        return mGhosttyTerminalContent != null && mAutoScrollDisabled;
-    }
-
-    public void toggleAutoScrollDisabled() {
-        if (mGhosttyTerminalContent != null) {
-            mAutoScrollDisabled = !mAutoScrollDisabled;
-        }
     }
 
     public int getScrollCounter() {

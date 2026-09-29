@@ -14,6 +14,7 @@ import kotlin.math.roundToInt
 class TerminalSessionCommandAdapter(
     private val session: TerminalSession,
     private val updateTopRow: (Int) -> Unit,
+    private val toggleAutoScroll: () -> Unit,
     private val submitScrollEvent: (GhosttyScrollEvent) -> Unit = session::sendGhosttyScrollEvent
 ) {
     fun submit(command: TerminalCommand): TerminalCommandResult = when (command) {
@@ -23,6 +24,7 @@ class TerminalSessionCommandAdapter(
         is TerminalCommand.Mouse -> submitMouse(command.event)
         is TerminalCommand.Scroll -> submitScroll(command)
         is TerminalCommand.SetViewportTopRow -> setViewportTopRow(command.topRow)
+        is TerminalCommand.ToggleAutoScroll -> submitAutoScrollToggle()
     }
 
     private fun writeText(text: String): TerminalCommandResult {
@@ -125,6 +127,11 @@ class TerminalSessionCommandAdapter(
 
     private fun setViewportTopRow(topRow: Int): TerminalCommandResult {
         updateTopRow(topRow)
+        return TerminalCommandResult.Success
+    }
+
+    private fun submitAutoScrollToggle(): TerminalCommandResult {
+        toggleAutoScroll()
         return TerminalCommandResult.Success
     }
 

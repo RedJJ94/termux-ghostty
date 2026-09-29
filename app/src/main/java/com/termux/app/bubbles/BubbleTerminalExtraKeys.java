@@ -45,9 +45,7 @@ public final class BubbleTerminalExtraKeys extends TerminalExtraKeys {
         }
 
         if ("SCROLL".equals(key)) {
-            TerminalSession currentSession = mActivity.getCurrentSession();
-            if (currentSession != null)
-                currentSession.toggleAutoScrollDisabled();
+            mActivity.getTerminalView().toggleAutoScrollDisabled();
             return;
         }
 
