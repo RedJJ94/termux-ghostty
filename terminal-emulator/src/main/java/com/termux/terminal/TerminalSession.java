@@ -909,6 +909,17 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
         return mGhosttySessionWorker == null ? null : mGhosttySessionWorker.getPublishedFrameDelta();
     }
 
+    /**
+     * Asks the worker to re-deliver the current publication on the main thread.
+     *
+     * <p>The published transport snapshot is only safe to read while a publication is in flight,
+     * so a host refreshing outside that window must wait for a replay instead of reading it.
+     */
+    public void requestGhosttyFrameReplay() {
+        if (mClosed || mGhosttySessionWorker == null) return;
+        mGhosttySessionWorker.requestFrameReplay();
+    }
+
     public boolean isGhosttyCursorBlinkingEnabled() {
         return mGhosttySessionWorker != null && mGhosttyCursorBlinkingEnabled;
     }
@@ -992,10 +1003,9 @@ public final class TerminalSession extends TerminalOutput implements AutoCloseab
     }
 
     public int getBackgroundColor() {
-        FrameDelta frameDelta = getGhosttyPublishedFrameDelta();
-        if (frameDelta != null) {
-            return frameDelta.getTransportSnapshot().getPaletteColor(TextStyle.COLOR_INDEX_BACKGROUND);
-        }
+        // Worker-published display metadata for the last published frame. Reading the transport
+        // snapshot would be a read of a buffer that is only valid inside the publication window.
+        if (mGhosttySessionWorker != null) return mGhosttySessionWorker.getLastPublishedBackgroundColor();
         return TerminalColors.COLOR_SCHEME.mDefaultColors[TextStyle.COLOR_INDEX_BACKGROUND];
     }
 

@@ -98,7 +98,11 @@ class TerminalSessionBackend @JvmOverloads constructor(
         if (released || !session.hasActiveTerminalBackend()) return
         val frameDelta = session.ghosttyPublishedFrameDelta
         if (frameDelta == null) {
-            session.requestGhosttyFullSnapshotRefresh()
+            // The transport snapshot is only readable while a publication is in flight. Ask the
+            // worker to replay the current publication so this read lands inside that window,
+            // and ask for a full snapshot only when nothing has ever been applied here.
+            session.requestGhosttyFrameReplay()
+            if (frameStore.currentFrame() == null) session.requestGhosttyFullSnapshotRefresh()
             return
         }
         synchronizeViewport(frameDelta)

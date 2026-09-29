@@ -93,6 +93,9 @@ final class GhosttySessionWorker extends Thread {
     private long mLastSnapshotTime;
     private long mPublishedFrameCount;
     private long mSnapshotBuildTotalNanos;
+
+    /** Background colour of the most recently published frame, for host chrome. */
+    private volatile int mLastPublishedBackgroundColor = TerminalColors.COLOR_SCHEME.mDefaultColors[TextStyle.COLOR_INDEX_BACKGROUND];
     private long mCoalescedBuildRequestCount;
     private long mCoalescedUiWakeupCount;
     private long mCompressionActivity;
@@ -313,7 +316,40 @@ final class GhosttySessionWorker extends Thread {
     }
 
     FrameDelta getPublishedFrameDelta() {
+        // The published transport snapshot aliases a mutable staging buffer. While a UI update
+        // is pending the worker cannot start another build, so that buffer is stable and safe to
+        // copy. Outside that window the buffer is recyclable and must not be handed out.
+        if (!mFramePublicationGate.isUIUpdatePending()) return null;
         return mPublishedFrameDelta.get();
+    }
+
+    /**
+     * Re-delivers the current publication to the main thread without rebuilding a snapshot.
+     *
+     * <p>Lets a host that wants a frame outside the publication window read the transport
+     * snapshot safely: the read then happens inside the replay's own window.
+     */
+    void requestFrameReplay() {
+        // A pending notification already delivers the newest publication to every reader.
+        if (!mFramePublicationGate.tryScheduleUIUpdate()) return;
+        mMainThreadHandler.post(() -> {
+            try {
+                mSession.notifyFrameAvailable();
+            } finally {
+                mFramePublicationGate.completeUIUpdate();
+            }
+        });
+    }
+
+    /**
+     * Background colour of the most recently published frame.
+     *
+     * <p>Worker-published display metadata, safe to read from any thread at any time. Reading
+     * the transport snapshot instead would be a cold read of a buffer that is only valid inside
+     * the publication window.
+     */
+    int getLastPublishedBackgroundColor() {
+        return mLastPublishedBackgroundColor;
     }
 
     private void handleAppend() {
@@ -756,6 +792,7 @@ final class GhosttySessionWorker extends Thread {
         mPublishedFrameCount++;
         stagingSnapshot.setFrameSequence(mPublishedFrameCount);
         stagingViewportLinks.setFrameSequence(mPublishedFrameCount);
+        mLastPublishedBackgroundColor = stagingSnapshot.getPaletteColor(TextStyle.COLOR_INDEX_BACKGROUND);
         mSnapshotBuildTotalNanos += buildDurationNanos;
         logSnapshotBuildPerfIfNeeded(stagingSnapshot, buildDurationNanos);
 
