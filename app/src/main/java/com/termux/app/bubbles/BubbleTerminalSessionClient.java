@@ -1,7 +1,5 @@
 package com.termux.app.bubbles;
 
-import android.graphics.Typeface;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
@@ -9,18 +7,11 @@ import com.termux.app.BubbleSessionActivity;
 import com.termux.shared.interact.ShareUtils;
 import com.termux.shared.logger.Logger;
 import com.termux.shared.termux.TermuxConstants;
-import com.termux.shared.termux.settings.properties.TermuxPropertyConstants;
-import com.termux.shared.termux.terminal.TermuxTerminalSessionClientBase;
-import com.termux.shared.termux.theme.MaterialYouTerminalColors;
-import com.termux.terminal.TerminalColors;
-import com.termux.terminal.TerminalSession;
-import com.termux.terminal.TextStyle;
 import com.termux.shared.termux.extrakeys.ExtraKeysView;
-
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.InputStream;
-import java.util.Properties;
+import com.termux.shared.termux.terminal.TermuxTerminalSessionClientBase;
+import com.termux.shared.termux.terminal.TermuxTerminalStyling;
+import com.termux.terminal.TerminalSession;
+import com.termux.terminal.TerminalSessionClient;
 
 public final class BubbleTerminalSessionClient extends TermuxTerminalSessionClientBase {
 
@@ -43,13 +34,6 @@ public final class BubbleTerminalSessionClient extends TermuxTerminalSessionClie
 
     public void onStop() {
         mActivity.setTerminalCursorBlinkerState(false, true);
-    }
-
-    @Override
-    public void onTextChanged(@NonNull TerminalSession changedSession) {
-        if (!mActivity.isVisible()) return;
-        if (changedSession != mActivity.getCurrentSession()) return;
-        mActivity.getTerminalView().onScreenUpdated();
     }
 
     @Override
@@ -112,53 +96,15 @@ public final class BubbleTerminalSessionClient extends TermuxTerminalSessionClie
     }
 
     public void applyTerminalStyling() {
-        try {
-            File colorsFile = TermuxConstants.TERMUX_COLOR_PROPERTIES_FILE;
-            File fontFile = TermuxConstants.TERMUX_FONT_FILE;
-            String materialYouTheme = mActivity.getProperties().getMaterialYouTheme();
-            boolean isMaterialYou = !TermuxPropertyConstants.IVALUE_MATERIAL_YOU_THEME_DISABLED.equals(materialYouTheme);
-
-            Properties properties = new Properties();
-            if (isMaterialYou) {
-                properties.putAll(MaterialYouTerminalColors.generate(mActivity));
-            } else if (colorsFile.isFile()) {
-                try (InputStream inputStream = new FileInputStream(colorsFile)) {
-                    properties.load(inputStream);
-                }
-            }
-
-            TerminalColors.COLOR_SCHEME.updateWith(properties);
-            TerminalSession session = mActivity.getCurrentSession();
-            if (session != null) {
-                session.reloadColorScheme();
-            }
-
-            Typeface typeface = (fontFile.exists() && fontFile.length() > 0)
-                ? Typeface.createFromFile(fontFile)
-                : Typeface.MONOSPACE;
-            mActivity.getTerminalView().setTypeface(typeface);
-            updateBackgroundColor();
-        } catch (Exception e) {
-            Logger.logStackTraceWithMessage(LOG_TAG, "Failed to apply bubble terminal styling", e);
-        }
+        TermuxTerminalStyling.applyTerminalStyling(
+            mActivity, mActivity.getProperties(), mActivity.getTerminalView(), mActivity.getCurrentSession());
+        updateBackgroundColor();
     }
 
     public void updateBackgroundColor() {
         if (!mActivity.isVisible()) return;
 
-        TerminalSession session = mActivity.getCurrentSession();
-        int bgColor;
-        if (session != null && session.hasActiveTerminalBackend()) {
-            bgColor = session.getBackgroundColor();
-        } else {
-            bgColor = TerminalColors.COLOR_SCHEME.mDefaultColors[TextStyle.COLOR_INDEX_BACKGROUND];
-        }
-
-        mActivity.getWindow().getDecorView().setBackgroundColor(bgColor);
-        ExtraKeysView extraKeysView = mActivity.getExtraKeysView();
-        if (extraKeysView != null) {
-            extraKeysView.setBackgroundColor(bgColor);
-        }
+        TermuxTerminalStyling.applyBackgroundColor(
+            mActivity.getCurrentSession(), mActivity.getWindow().getDecorView(), mActivity.getExtraKeysView());
     }
-
 }

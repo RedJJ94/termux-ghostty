@@ -62,12 +62,6 @@ public final class TermuxTerminalSessionClientDispatcher extends TermuxTerminalS
     }
 
     @Override
-    public void onTextChanged(@NonNull TerminalSession changedSession) {
-        for (TerminalSessionClient client : getRegisteredClientsSnapshot())
-            client.onTextChanged(changedSession);
-    }
-
-    @Override
     public void onFrameAvailable(@NonNull TerminalSession changedSession) {
         for (TerminalSessionClient client : getRegisteredClientsSnapshot())
             client.onFrameAvailable(changedSession);

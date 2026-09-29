@@ -20,9 +20,8 @@ import com.termux.app.TermuxActivity;
 import com.termux.app.TermuxService;
 import com.termux.shared.termux.settings.properties.TermuxPropertyConstants;
 import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession;
-import com.termux.terminal.TerminalColors;
+import com.termux.shared.termux.terminal.TermuxTerminalStyling;
 import com.termux.terminal.TerminalSession;
-import com.termux.terminal.TextStyle;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -346,13 +345,8 @@ public class SessionTabStripController {
      * Update tab strip background to match the terminal view.
      */
     public void updateBackgroundColor() {
-        TerminalSession session = mActivity.getCurrentSession();
-        if (session != null && session.hasActiveTerminalBackend()) {
-            mScrollView.setBackgroundColor(session.getBackgroundColor());
-        } else {
-            // No live session - use global color scheme directly
-            mScrollView.setBackgroundColor(TerminalColors.COLOR_SCHEME.mDefaultColors[TextStyle.COLOR_INDEX_BACKGROUND]);
-        }
+        TermuxTerminalStyling.applyBackgroundColor(
+            mActivity.getCurrentSession(), mScrollView);
     }
 
     private int dpToPx(int dp) {

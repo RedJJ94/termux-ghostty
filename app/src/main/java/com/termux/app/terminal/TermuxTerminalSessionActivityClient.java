@@ -1,13 +1,10 @@
 package com.termux.app.terminal;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.graphics.Typeface;
 import android.media.AudioAttributes;
 import android.media.SoundPool;
 import android.text.TextUtils;
@@ -22,26 +19,18 @@ import com.termux.shared.termux.shell.command.runner.terminal.TermuxSession;
 import com.termux.shared.termux.interact.TextInputDialogUtils;
 import com.termux.app.TermuxActivity;
 import com.termux.shared.termux.terminal.TermuxTerminalSessionClientBase;
+import com.termux.shared.termux.terminal.TermuxTerminalStyling;
 import com.termux.shared.termux.TermuxConstants;
 import com.termux.app.TermuxService;
 import com.termux.shared.termux.settings.properties.TermuxPropertyConstants;
 import com.termux.shared.termux.terminal.io.BellHandler;
 import com.termux.shared.logger.Logger;
-import com.termux.shared.termux.theme.MaterialYouTerminalColors;
-import com.termux.terminal.TerminalColors;
 import com.termux.terminal.TerminalSession;
 import com.termux.terminal.TerminalSessionClient;
-import com.termux.terminal.TextStyle;
 import com.termux.terminal.compose.session.TerminalSessionBackend;
-import com.termux.shared.termux.extrakeys.ExtraKeysView;
-import androidx.viewpager.widget.ViewPager;
 
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Properties;
 
 /** The {@link TerminalSessionClient} implementation that may require an {@link Activity} for its interface methods. */
 public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionClientBase {
@@ -124,13 +113,6 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
     }
 
 
-
-    @Override
-    public void onTextChanged(@NonNull TerminalSession changedSession) {
-        if (!mActivity.isVisible()) return;
-
-        if (mActivity.getCurrentSession() == changedSession) mActivity.getTerminalView().onScreenUpdated();
-    }
 
     @Override
     public void onTerminalReady(@NonNull TerminalSession readySession) {
@@ -509,19 +491,30 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
         if (!wasCurrentSession) return;
 
-        int size = service.getTermuxSessionsSize();
-        if (size == 0) {
+        int replacementIndex = resolveReplacementIndex(removedIndex, service.getTermuxSessionsSize());
+        if (replacementIndex < 0) {
             // There are no sessions to show, so finish the activity.
             mActivity.finishActivityIfNotFinishing();
             return;
         }
 
-        TermuxSession termuxSession = service.getTermuxSession(Math.min(removedIndex, size - 1));
+        TermuxSession termuxSession = service.getTermuxSession(replacementIndex);
         if (termuxSession != null) {
             setCurrentSession(termuxSession.getTerminalSession());
         } else {
             clearCurrentSession();
         }
+    }
+
+    /**
+     * Index of the session to display after the session at {@code removedIndex} left a list that
+     * now holds {@code remainingSize} sessions.
+     *
+     * @return -1 when nothing is left to display.
+     */
+    static int resolveReplacementIndex(int removedIndex, int remainingSize) {
+        if (remainingSize <= 0 || removedIndex < 0) return -1;
+        return Math.min(removedIndex, remainingSize - 1);
     }
 
     /** Releases every session backend this host owns. Call when the activity is destroyed. */
@@ -593,56 +586,17 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
 
     public void checkForFontAndColors() {
-        try {
-            File colorsFile = TermuxConstants.TERMUX_COLOR_PROPERTIES_FILE;
-            File fontFile = TermuxConstants.TERMUX_FONT_FILE;
-            String materialYouTheme = mActivity.getProperties().getMaterialYouTheme();
-            boolean isMaterialYou = !TermuxPropertyConstants.IVALUE_MATERIAL_YOU_THEME_DISABLED.equals(materialYouTheme);
-
-            Properties properties = new Properties();
-            if (isMaterialYou) {
-                properties.putAll(MaterialYouTerminalColors.generate(mActivity));
-            } else if (colorsFile.isFile()) {
-                try (InputStream in = new FileInputStream(colorsFile)) {
-                    properties.load(in);
-                }
-            }
-
-            TerminalColors.COLOR_SCHEME.updateWith(properties);
-            TerminalSession session = mActivity.getCurrentSession();
-            if (session != null) {
-                session.reloadColorScheme();
-            }
-
-            Typeface typeface = (fontFile.exists() && fontFile.length() > 0)
-                ? Typeface.createFromFile(fontFile)
-                : Typeface.MONOSPACE;
-            mActivity.getTerminalView().setTypeface(typeface);
-        } catch (Exception e) {
-            Logger.logStackTraceWithMessage(LOG_TAG, "Error in checkForFontAndColors()", e);
-        }
+        TermuxTerminalStyling.applyTerminalStyling(
+            mActivity, mActivity.getProperties(), mActivity.getTerminalView(), mActivity.getCurrentSession());
     }
 
     public void updateBackgroundColor() {
         if (!mActivity.isVisible()) return;
-        TerminalSession session = mActivity.getCurrentSession();
-        int bgColor;
-        if (session != null && session.hasActiveTerminalBackend()) {
-            bgColor = session.getBackgroundColor();
-        } else {
-            bgColor = TerminalColors.COLOR_SCHEME.mDefaultColors[TextStyle.COLOR_INDEX_BACKGROUND];
-        }
-        mActivity.getWindow().getDecorView().setBackgroundColor(bgColor);
 
-        ExtraKeysView extraKeysView = mActivity.getExtraKeysView();
-        if (extraKeysView != null) {
-            extraKeysView.setBackgroundColor(bgColor);
-        }
-
-        ViewPager viewPager = mActivity.getTerminalToolbarViewPager();
-        if (viewPager != null) {
-            viewPager.setBackgroundColor(bgColor);
-        }
+        TermuxTerminalStyling.applyBackgroundColor(mActivity.getCurrentSession(),
+            mActivity.getWindow().getDecorView(),
+            mActivity.getExtraKeysView(),
+            mActivity.getTerminalToolbarViewPager());
     }
 
 }

@@ -105,10 +105,6 @@ class ServerFactory(
                 onFinished()
             }
 
-            override fun onTextChanged(changedSession: TerminalSession) {
-                sessionClient.onTextChanged(changedSession)
-            }
-
             override fun onFrameAvailable(changedSession: TerminalSession) {
                 sessionClient.onFrameAvailable(changedSession)
             }
@@ -205,10 +201,6 @@ class ServerFactory(
             override fun onSessionFinished(finishedSession: TerminalSession) {
                 original.onSessionFinished(finishedSession)
                 onFinished()
-            }
-
-            override fun onTextChanged(changedSession: TerminalSession) {
-                original.onTextChanged(changedSession)
             }
 
             override fun onFrameAvailable(changedSession: TerminalSession) {

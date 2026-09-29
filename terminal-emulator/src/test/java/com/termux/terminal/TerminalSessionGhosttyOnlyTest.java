@@ -148,10 +148,6 @@ public class TerminalSessionGhosttyOnlyTest {
         }
 
         @Override
-        public void onTextChanged(TerminalSession changedSession) {
-        }
-
-        @Override
         public void onTerminalReady(TerminalSession readySession) {
             events.add("ready");
         }

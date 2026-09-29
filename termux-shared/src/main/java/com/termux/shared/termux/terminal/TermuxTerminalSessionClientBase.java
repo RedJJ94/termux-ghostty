@@ -13,10 +13,6 @@ public class TermuxTerminalSessionClientBase implements TerminalSessionClient {
     }
 
     @Override
-    public void onTextChanged(@NonNull TerminalSession changedSession) {
-    }
-
-    @Override
     public void onTerminalReady(@NonNull TerminalSession readySession) {
     }
 

@@ -291,9 +291,14 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         for (int i = 0; i < termuxSessions.size(); i++) {
             ExecutionCommand executionCommand = termuxSessions.get(i).getExecutionCommand();
             processResult = mWantsToStop || executionCommand.isPluginExecutionCommandWithPendingResult();
-            termuxSessions.get(i).killIfExecuting(this, processResult);
-            if (!processResult)
-                mShellManager.mTermuxSessions.remove(termuxSessions.get(i));
+            TermuxSession termuxSession = termuxSessions.get(i);
+            termuxSession.killIfExecuting(this, processResult);
+            if (!processResult) {
+                // Dropped from the list without result processing, so dispose it here. Leaving
+                // it owned would strand a killed session in the list with a dead terminal.
+                mShellManager.mTermuxSessions.remove(termuxSession);
+                termuxSession.getTerminalSession().close();
+            }
         }
 
 
@@ -672,12 +677,34 @@ public final class TermuxService extends Service implements AppShell.AppShellCli
         return -1;
     }
 
-    /** Remove a TermuxSession. */
+    /**
+     * Remove a TermuxSession and dispose its terminal.
+     *
+     * <p>Removal is not conditional on result bookkeeping. {@link TermuxSession#finish()} may
+     * decline because the session is still running, its execution command already failed, or it
+     * was already processed; the host still needs the session gone, otherwise a closed session
+     * stays selectable and can never be typed into.
+     *
+     * @return the index the session occupied before removal, or -1 when the service did not own it.
+     */
     public synchronized int removeTermuxSession(TerminalSession sessionToRemove) {
         int index = getIndexOfSession(sessionToRemove);
 
-        if (index >= 0)
-            mShellManager.mTermuxSessions.get(index).finish();
+        if (index < 0) return -1;
+
+        // Processes plugin results and, on the normal path, removes and closes the session
+        // through onTermuxSessionExited().
+        mShellManager.mTermuxSessions.get(index).finish();
+        if (getIndexOfSession(sessionToRemove) < 0) return index;
+
+        mShellManager.mTermuxSessions.remove(index);
+        sessionToRemove.close();
+        if (mSessionBubbleController != null)
+            mSessionBubbleController.removeSessionBubble(sessionToRemove.mHandle);
+
+        Logger.logVerbose(LOG_TAG, "Removed session " + sessionToRemove.mHandle + " without result processing");
+        if (mTermuxTerminalSessionActivityClient != null)
+            mTermuxTerminalSessionActivityClient.termuxSessionListNotifyUpdated();
 
         return index;
     }

@@ -10,8 +10,6 @@ import androidx.annotation.Nullable;
  */
 public interface TerminalSessionClient {
 
-    void onTextChanged(@NonNull TerminalSession changedSession);
-
     /**
      * Called once the terminal backend of {@code readySession} became active.
      *
