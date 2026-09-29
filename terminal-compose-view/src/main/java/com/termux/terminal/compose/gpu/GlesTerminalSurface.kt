@@ -176,6 +176,7 @@ sealed interface GlesTerminalDiagnostic {
  * The renderer keeps a bounded row-packet cache so sparse frame updates do not
  * remeasure and rebuild unchanged visible rows.
  */
+@Suppress("TooManyFunctions") // publication, lifecycle and diagnostics seams of one surface
 class GlesTerminalSurface(
     onDiagnostic: (GlesTerminalDiagnostic) -> Unit = {}
 ) {
@@ -239,6 +240,19 @@ class GlesTerminalSurface(
             visual = visual
         )
     )
+
+    /**
+     * Discards everything a previous frame source published.
+     *
+     * <p>The next presentation comes from a different frame sequence space, so the revision
+     * domain restarts with it and the previous source's pixels are not presented in the meantime.
+     */
+    fun beginNewSource() {
+        if (released.get()) return
+        handoff.beginNewSource()
+        lastPublishedSnapshot.set(null)
+        requestRender.get()?.invoke()
+    }
 
     /** Requests a presentation-only draw; it never changes terminal state. */
     fun requestAnimationFrame(timeSeconds: Float) {

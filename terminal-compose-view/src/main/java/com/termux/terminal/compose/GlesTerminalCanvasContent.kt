@@ -23,11 +23,13 @@ internal fun glesTerminalCanvasContent(
     selection: TerminalSelection,
     fontSizePx: Float,
     config: TerminalCanvasConfig,
+    surfaceKey: Any?,
     modifier: Modifier = Modifier
 ): GlesTerminalSurface {
-    // A controller owns one session/frame sequence. Recreate the surface when
-    // that owner changes so a restarted sequence cannot inherit old watermarks.
-    val surface = rememberGlesTerminalSurface(surfaceKey = controller)
+    // The surface belongs to the canvas, not to a session: a session switch republishes through
+    // the same surface, so its EGL context, glyph atlas and textures survive the switch instead
+    // of being torn down and rebuilt per tab.
+    val surface = rememberGlesTerminalSurface(surfaceKey = surfaceKey)
     val presentationRevision = remember(surface) { AtomicLong(0L) }
     val publishLatestFrame = {
         if (metrics.viewportWidthPx > 0 && metrics.viewportHeightPx > 0) {
@@ -56,7 +58,12 @@ internal fun glesTerminalCanvasContent(
     }
     val currentPublisher by rememberUpdatedState(publishLatestFrame)
 
+    // Tracks whether this surface has already published a frame source, so a controller change
+    // restarts the revision domain instead of inheriting the previous session's watermarks.
+    val hasPublishedSource = remember(surface) { booleanArrayOf(false) }
     DisposableEffect(surface, controller) {
+        if (hasPublishedSource[0]) surface.beginNewSource()
+        hasPublishedSource[0] = true
         val callback = { currentPublisher() }
         controller.onFrameAvailable = callback
         callback()

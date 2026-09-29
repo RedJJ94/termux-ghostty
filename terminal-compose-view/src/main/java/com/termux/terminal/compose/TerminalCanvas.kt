@@ -94,6 +94,8 @@ fun TerminalCanvas(
     modifier: Modifier = Modifier
 ) {
     val selectionState = remember(backend) { TerminalSelectionState() }
+    // Stable for the lifetime of this canvas, so the GLES surface outlives session switches.
+    val surfaceKey = remember { Any() }
     val hapticFeedback = LocalHapticFeedback.current
     val focusRequester = remember { FocusRequester() }
     val fallbackImeController = remember { TerminalImeController() }
@@ -177,7 +179,8 @@ fun TerminalCanvas(
             focusRequester = focusRequester,
             hapticFeedback = hapticFeedback,
             contentVersionState = contentVersionState,
-            canvasPositionInWindow = canvasPositionInWindow
+            canvasPositionInWindow = canvasPositionInWindow,
+            surfaceKey = surfaceKey
         ),
         onViewportSizeChanged = { viewportSizePx = it },
         onCanvasPositionChanged = { canvasPositionInWindow = it }
@@ -196,7 +199,8 @@ private data class TerminalCanvasState(
     val focusRequester: FocusRequester,
     val hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
     val contentVersionState: MutableIntState,
-    val canvasPositionInWindow: Offset
+    val canvasPositionInWindow: Offset,
+    val surfaceKey: Any?
 )
 
 @Suppress("LongMethod")
@@ -248,6 +252,7 @@ private fun TerminalCanvasLayout(
             selection = state.selectionState.selection,
             fontSizePx = state.fontSizeState.intValue.toFloat(),
             config = state.config,
+            surfaceKey = state.surfaceKey,
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(PixelLayerZIndex)

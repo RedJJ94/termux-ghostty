@@ -48,6 +48,24 @@ internal class TerminalSnapshotHandoff {
 
     fun acquireOrRetained(): GlesTerminalSnapshot? = acquire() ?: peekRetained()
 
+    /**
+     * Discards everything the previous frame source published and restarts the revision domain.
+     *
+     * <p>A new source means a different frame sequence space, so an older sequence is no longer
+     * evidence of an out-of-order publication. Retained pixels are dropped as well: the previous
+     * source's content must never be presented on behalf of the new one.
+     */
+    fun beginNewSource() {
+        while (true) {
+            val current = slot.get()
+            if (current === Released) return
+            if (slot.compareAndSet(current, Empty(Long.MIN_VALUE, Long.MIN_VALUE))) {
+                retainedSnapshot.set(null)
+                return
+            }
+        }
+    }
+
     fun hasPending(): Boolean = slot.get() is Pending
 
     fun hasRetained(): Boolean = retainedSnapshot.get() != null

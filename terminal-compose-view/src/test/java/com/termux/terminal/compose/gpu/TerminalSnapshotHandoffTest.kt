@@ -77,4 +77,47 @@ class TerminalSnapshotHandoffTest {
         )
         assertTrue(handoff.acquire() === latest)
     }
+
+    @Test
+    fun aNewFrameSourceRestartsTheRevisionDomain() {
+        val handoff = TerminalSnapshotHandoff()
+        val firstSource = testSnapshot(900L)
+        assertTrue(handoff.publish(firstSource))
+        assertTrue(handoff.acquire() === firstSource)
+
+        // A different session numbers its frames from its own origin, so the first publication
+        // of the new source looks older than the previous source's last one.
+        handoff.beginNewSource()
+        assertFalse("the previous source's pixels must not be presented for the new one", handoff.hasRetained())
+        assertNull(handoff.acquire())
+
+        val secondSource = testSnapshot(1L)
+        assertTrue(handoff.publish(secondSource))
+        assertTrue(handoff.acquire() === secondSource)
+    }
+
+    @Test
+    fun aNewFrameSourceCannotBeConfusedWithAnOutOfOrderPublication() {
+        val handoff = TerminalSnapshotHandoff()
+        assertTrue(handoff.publish(testSnapshot(500L).copy(presentationRevision = 3L)))
+        handoff.beginNewSource()
+
+        // Ordering within the new source still holds.
+        val latest = testSnapshot(40L).copy(presentationRevision = 9L)
+        assertTrue(handoff.publish(latest))
+        assertFalse(handoff.publish(testSnapshot(39L).copy(presentationRevision = 10L)))
+        assertTrue(handoff.acquire() === latest)
+    }
+
+    @Test
+    fun aNewFrameSourceIsRefusedAfterRelease() {
+        val handoff = TerminalSnapshotHandoff()
+        handoff.publish(testSnapshot(5L))
+        handoff.release()
+
+        handoff.beginNewSource()
+
+        assertFalse(handoff.publish(testSnapshot(1L)))
+        assertNull(handoff.acquire())
+    }
 }
