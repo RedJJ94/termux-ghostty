@@ -63,6 +63,15 @@ public final class BubbleSessionActivity extends AppCompatActivity implements Se
     private boolean mDidCloseTermuxActivityOnBubbleOpen;
     private int mLastMaterialYouWallpaperId;
     private boolean mRealImeInsetsReceived = false;
+
+    /**
+     * True between fabricating a remembered keyboard height and reverting it.
+     *
+     * <p>The pre-apply is a hypothesis for the first frame after the activity becomes visible, not
+     * a layout state: a fabricated inset that no real dispatch confirms leaves the bubble sized
+     * for a keyboard that never opened.
+     */
+    private boolean mPreAppliedKeyboardHeightPending = false;
     private int mBasePaddingLeft;
     private int mBasePaddingTop;
     private int mBasePaddingRight;
@@ -234,6 +243,7 @@ public final class BubbleSessionActivity extends AppCompatActivity implements Se
         super.onResume();
         android.util.Log.w(LOG_TAG, "onResume");
         mRealImeInsetsReceived = false;
+        mPreAppliedKeyboardHeightPending = false;
         if (mIsInvalidState) return;
 
         reloadMaterialYouThemeIfNeeded();
@@ -249,6 +259,7 @@ public final class BubbleSessionActivity extends AppCompatActivity implements Se
     public void onConfigurationChanged(@NonNull android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         mRealImeInsetsReceived = false;
+        mPreAppliedKeyboardHeightPending = false;
     }
 
     @Override
@@ -377,6 +388,7 @@ public final class BubbleSessionActivity extends AppCompatActivity implements Se
 
             if (isRealImeVisible) {
                 mRealImeInsetsReceived = true;
+                mPreAppliedKeyboardHeightPending = false;
                 if (keyboardBottomInset > 0) {
                     int orientation = getResources().getConfiguration().orientation;
                     if (orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT) {
@@ -385,6 +397,16 @@ public final class BubbleSessionActivity extends AppCompatActivity implements Se
                         getPreferences().setLastSoftKeyboardHeightLandscape(keyboardBottomInset);
                     }
                 }
+            }
+
+            // Second phase of the hypothesis: the first real dispatch settles the layout, so a
+            // fabricated height is dropped whether or not the keyboard turned out to be visible.
+            if (mPreAppliedKeyboardHeightPending) {
+                mPreAppliedKeyboardHeightPending = false;
+                android.util.Log.w(LOG_TAG, "Withdrawing pre-applied keyboard height in bubble: isRealImeVisible=" + isRealImeVisible
+                    + ", imeInsets.bottom=" + imeInsets.bottom);
+                view.setPadding(mBasePaddingLeft, mBasePaddingTop, mBasePaddingRight, mBasePaddingBottom);
+                return windowInsets;
             }
 
             if (!mRealImeInsetsReceived

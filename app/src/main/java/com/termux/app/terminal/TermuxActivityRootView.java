@@ -40,6 +40,16 @@ public class TermuxActivityRootView extends LinearLayout {
     private int mBasePaddingBottom;
     private boolean mRealImeInsetsReceived = false;
 
+    /**
+     * True between fabricating a remembered keyboard height and reverting it.
+     *
+     * <p>The pre-apply is a hypothesis for the first frame after the window becomes visible, not a
+     * layout state: the fabricated inset resizes the window, so it must be withdrawn as soon as a
+     * real inset arrives, or the UI stays sized for a keyboard that never opened.
+     */
+    private boolean mPreAppliedKeyboardHeightPending = false;
+    private final Runnable mRevertPreAppliedKeyboardHeightRunnable = this::revertPreAppliedKeyboardHeight;
+
     public TermuxActivityRootView(Context context) {
         super(context);
     }
@@ -47,21 +57,44 @@ public class TermuxActivityRootView extends LinearLayout {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        mRealImeInsetsReceived = false;
+        resetImeHypothesis();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        removeCallbacks(mRevertPreAppliedKeyboardHeightRunnable);
+        super.onDetachedFromWindow();
     }
 
     @Override
     protected void onWindowVisibilityChanged(int visibility) {
         super.onWindowVisibilityChanged(visibility);
         if (visibility == View.VISIBLE) {
-            mRealImeInsetsReceived = false;
+            resetImeHypothesis();
         }
     }
 
     @Override
     protected void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
+        resetImeHypothesis();
+    }
+
+    /** Drops the "no real insets yet" state so the pre-apply can be tried again. */
+    private void resetImeHypothesis() {
         mRealImeInsetsReceived = false;
+        mPreAppliedKeyboardHeightPending = false;
+        removeCallbacks(mRevertPreAppliedKeyboardHeightRunnable);
+    }
+
+    /**
+     * Withdraws a pre-applied keyboard height that no real inset confirmed.
+     *
+     * <p>Re-dispatching insets is what produces the next real values, and those then win.
+     */
+    private void revertPreAppliedKeyboardHeight() {
+        if (!mPreAppliedKeyboardHeightPending) return;
+        requestApplyInsets();
     }
 
     public TermuxActivityRootView(Context context, @Nullable AttributeSet attrs) {
@@ -224,6 +257,8 @@ public class TermuxActivityRootView extends LinearLayout {
 
         if (isRealImeVisible) {
             mRealImeInsetsReceived = true;
+            mPreAppliedKeyboardHeightPending = false;
+            removeCallbacks(mRevertPreAppliedKeyboardHeightRunnable);
             int keyboardHeight = Math.max(0, imeBottomInset - systemBarsBottomInset);
             if (keyboardHeight > 0) {
                 int orientation = getResources().getConfiguration().orientation;
@@ -233,6 +268,16 @@ public class TermuxActivityRootView extends LinearLayout {
                     mActivity.getPreferences().setLastSoftKeyboardHeightLandscape(keyboardHeight);
                 }
             }
+        }
+
+        // Second phase of the hypothesis: the first real inset dispatch settles the layout, so the
+        // fabricated height is dropped whether or not the keyboard turned out to be visible.
+        if (mPreAppliedKeyboardHeightPending) {
+            mPreAppliedKeyboardHeightPending = false;
+            removeCallbacks(mRevertPreAppliedKeyboardHeightRunnable);
+            Logger.logWarn(LOG_TAG, "Withdrawing pre-applied keyboard height: imeVisible=" + isRealImeVisible
+                + ", imeBottomInset=" + imeBottomInset);
+            return insets;
         }
 
         if (!mRealImeInsetsReceived
@@ -260,6 +305,11 @@ public class TermuxActivityRootView extends LinearLayout {
                 WindowInsetsCompat modifiedCompat = builder.build();
                 WindowInsets modifiedInsets = modifiedCompat.toWindowInsets();
                 if (modifiedInsets != null) {
+                    // Bound the hypothesis to this dispatch: if no real inset confirms it, the
+                    // revert re-dispatches insets so the window shrinks back.
+                    mPreAppliedKeyboardHeightPending = true;
+                    removeCallbacks(mRevertPreAppliedKeyboardHeightRunnable);
+                    post(mRevertPreAppliedKeyboardHeightRunnable);
                     return modifiedInsets;
                 }
             }
